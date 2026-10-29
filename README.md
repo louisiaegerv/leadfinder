@@ -1,33 +1,42 @@
+<p align="center">
+  <img src="docs/hero.webp" alt="Leadfinder: glowing pins on a night-time city map beside a ranked Top Prospects list with scores" width="100%">
+</p>
+
 # Leadfinder
 
-A local prospecting app for a marketing agency that sells to home-service businesses (flooring and concrete, painting, fencing, movers). It finds the businesses in a market, works out which ones are worth calling, and tells you what to pitch each one.
+**Find the home-service businesses worth calling, and know what to pitch each one.**
 
-It runs on your own machine, with your own Apify and OpenRouter keys. There is no login and no hosted backend, so don't expose it to the internet.
+A local prospecting app for a marketing agency that sells to flooring and concrete, painting, fencing and moving companies. It scrapes Google Maps for a market, scores every business for fit with each of your offers, fills in the owner, socials and reviews, and then tracks your outreach.
 
-## What it does
+It runs on your own machine with your own Apify and OpenRouter keys. There is no login and no hosted backend, so don't expose it to the internet.
+
+## How it works
 
 1. **Define a niche.** Start from a preset or from scratch. A niche holds a playbook: which Google Maps categories and keywords count as a target, which chains to exclude, and how to weight each offer.
-2. **Draw areas.** Mark a service area on a map as a radius or a polygon. The app lays out the search grid and shows the number of search points, the estimated run time and the estimated cost before anything is spent.
-3. **Launch a run.** After you confirm the estimate, a Google Maps scrape starts on Apify with a hard per-run cost cap. Results are fetched, normalized and deduplicated into one local database.
-4. **Review prospects.** A sortable, filterable table (and a map) of everything found, each with a score, a lead offer and a runner-up. Open a business to see exactly why it scored the way it did.
-5. **Enrich.** Several ways, from free to paid. "Enrich" on the table runs any of them over everything your current filters match (all pages, not only the rows you can see, best scores first), after a cost confirmation. The dialog says exactly which filters it will cover. With no filter chosen that is targets, adjacent and undecided, never noise. The buttons on a business's page do one business.
-   - **Quick scan (free):** reads the business's own website with plain HTTP, no AI. It finds social links (and links the Facebook page), emails, phone numbers, the About and Contact pages, a founder named in the site's structured data, and signals that feed the offer scores: no mobile site, no contact form or chat, a stale footer, a Facebook Pixel, a DIY site builder, or a site that doesn't load. It also records why a site couldn't be read (JavaScript-built, blocked, dead).
-   - **Web search (about a tenth of a cent):** googles for the owner and has your OpenRouter model read the results. It only accepts a name that a result states in its own text, and shows the quotes and sources so you can judge it.
-   - **Facebook page search (about $0.0005):** googles the business's name, city and state plus "Facebook" and picks the page out of the results by matching the name, place and phone number. No AI is involved. It saves the page and, when the link carries one, its numeric page ID, with a link to check its ads in the Meta Ad Library. A search that finds nothing is recorded as "searched", not as "has no page". Not offered for a business that already has a page.
-   - **Fetch reviews (about $0.002 for the 5 newest):** collects just the chosen places' newest Google reviews by place ID, with no search area, so it costs the actor's per-place charge plus the reviews instead of re-running a whole area. It updates only the review sample and the fresh rating and review count, then rescores every niche that tracks them.
-   - **Paid website reader (about $0.015):** the second pass for sites the quick scan can't read. It also gets emails, phones and services.
+2. **Draw areas.** Mark a service area on a map as a radius or a polygon. The app lays out the search grid and shows the number of search points, run time and cost before anything is spent.
+3. **Launch a run.** After you confirm the estimate, a Google Maps scrape starts on Apify with a hard per-run spend cap. Results are fetched, normalized and deduplicated into one local database. A run can also collect each place's newest reviews, and start the paid searches below, if you tick them.
+4. **Review prospects.** A sortable, filterable table (and a map) of everything found, each with a score, a lead offer and a runner-up. Open a business to see exactly why it scored the way it did, with the evidence.
+5. **Enrich.** Fill in who owns each business and how to reach them, from free to paid (below).
+6. **Work the list.** Log each call: what happened, what you pitched, the objection you heard, and when to follow up. The stage moves on its own. The Outreach page lists follow-ups that are due and tallies objections, and each business has a pitch brief with an opener, the evidence and answers to likely objections.
+7. **Decide the gray zone.** Rules sort most businesses into target or noise. The ones they can't decide can be reviewed in a batch by an LLM. Your own decision always wins.
 
-   The quick scan also runs on its own: when a Maps run finishes, the new places' websites are scanned in the background (the run list shows the progress), so a fresh run arrives already scored with the site signals. Set `AUTO_SCAN_ON_INGEST=0` to turn it off. Sites the scan couldn't read are only flagged.
+Places are shared across niches, so a business is never scraped or paid for twice. Relevance and score are kept per niche, while contact history and do-not-contact are kept per business.
 
-   The paid searches are off unless you tick them. In an area's run setup, "After the run: paid searches" has a switch for the owner search and one for the Facebook page search. Ticked ones start by themselves once the run's places are in, for the first 100 that don't already have the answer, and the cost shows in the estimate and the launch confirmation. The paid website reader is never automatic.
+## Enrichment
 
-   The area's run setup can also ask the Maps scraper for the newest reviews of each place ($0.25 per 1,000 reviews returned). That dates each business's latest review and shows whether the owner replies. A long gap points to the review-system offer, and a large review base that has gone quiet points to reactivation. Places already in your database get their review data filled in when a run sees them again, and every niche that tracks them is rescored. Scores that depend on today's date are refreshed weekly.
+"Enrich" on the table runs any of these over **everything your current filters match** (all pages, not just the visible rows, best scores first), after a cost confirmation. The dialog says exactly which filters it covers. With no filter chosen that is targets, adjacent and undecided, never noise. The buttons on a business's page do one business.
 
-   Each can fall back to the next: sites the scan can't read can go to the paid reader, and businesses the search can't name can have their website read. The owner shows in the table, on the business page, and in the pitch brief ("Ask for …").
-6. **Work the list.** Log each call from a business's page: what happened, what you pitched, the objection you heard, and when to follow up. The stage (not contacted, dialed, in conversation, meeting booked, and so on) moves on its own. The Outreach page lists follow-ups that are due, and a pitch brief on each business gives you an opener, the evidence, and answers to likely objections.
-7. **Decide the gray zone.** Rules sort most businesses into target or noise. The ones they can't decide can be reviewed in a batch by an LLM through OpenRouter. You can always override a result by hand, and your choice wins.
+| Option | Cost | What it does |
+| --- | --- | --- |
+| **Quick scan** | Free | Reads the business's own website with plain HTTP, no AI. Finds social links (and links the Facebook page), emails, phone numbers, About and Contact pages, a founder named in structured data, and signals for the offer scores: no mobile site, no contact form or chat, a stale footer, a Facebook Pixel, a DIY site builder, or a site that doesn't load. It records why a site couldn't be read. **Runs on its own** after every Maps run. |
+| **Search the web** | About $0.001 | Googles for the owner and has your model read the results. A name is accepted only when a result states it in its own text, and the quotes and sources are shown so you can judge it. Works without a website. |
+| **Find Facebook page** | About $0.0005 | Googles the name, city and state plus "Facebook" and picks the page out of the results by matching name, place and phone, with no AI. Saves the page and, when the link carries one, its numeric page ID with a link to check its ads in the Meta Ad Library. A miss is recorded as "searched", never as "has no page". |
+| **Fetch reviews** | About $0.002 for the 5 newest | Collects just the chosen places' newest Google reviews by place ID, with no search area, far cheaper than re-running an area. Updates only the review sample and the fresh rating and review count, then rescores every niche that tracks them. |
+| **Paid website reader** | About $0.015 | The second pass for sites the quick scan can't read. Also gets emails, phones and services. Never automatic. |
 
-Places are shared across niches, so a business scraped for one niche is not scraped or paid for twice. Relevance and score are kept per niche, while contact history and do-not-contact are kept per business.
+Only the quick scan is automatic. The paid searches (owner names, Facebook pages) are **off unless you tick them** in an area's run setup under "After the run: paid searches". Ticked ones start once the run's places are in, for the first 100 that don't already have the answer, and their cost is in the estimate and the launch confirmation. A result never replaces an owner name you typed, and a stronger finding is never replaced by a weaker one.
+
+Asking a run for the newest reviews ($0.25 per 1,000 reviews) dates each business's last review and shows whether the owner replies. A long gap points to the review-system offer, and a large review base that has gone quiet points to reactivation. A place already in your database gets its review data filled in when a run sees it again.
 
 ## The offers
 
@@ -52,26 +61,18 @@ score = fit gate × (capacity + gaps + reachability)
 - **Gaps (max 35):** what is visibly missing? No website, few photos, far fewer reviews than local peers, no hours or booking link.
 - **Reachability (max 25):** can you contact them? A phone number and a website.
 
-Peers are compared at ZIP code and category first, then area, then the whole niche, and a comparison needs at least five businesses. Tiers run from A (65 and above) down to D. Trade-level assumptions count for less than facts about the specific business, so the same offer doesn't lead for everyone. The weights live in `src/lib/scoring.ts`.
+Peers are compared at ZIP code and category first, then area, then the whole niche, and a comparison needs at least five businesses. Tiers run from A (65 and above) down to D. Trade-level assumptions count for less than facts about the specific business, so the same offer doesn't lead for everyone. Some evidence depends on today's date (how long since the last review), so scores refresh weekly. The weights live in `src/lib/scoring.ts`.
 
-## Status
+## Roadmap
 
-Built:
+**Built:** niches and presets, areas and cost-previewed runs, relevance rules plus an LLM gray-zone review, offer-fit scoring with visible evidence, the prospects table, map and detail pages, all of the enrichment above, review recency, and the outreach tracker.
 
-- Niches, playbooks and presets
-- Areas as radius or polygon, grid, time and cost preview, confirm-then-launch, status polling, dedupe
-- Business photos from the scraped data
-- Relevance rules plus the LLM gray-zone review
-- Offer-fit scoring, the prospects table, map and detail pages
-- Run options: the newest Google reviews per place, and opt-in paid searches (owner names, Facebook pages) that follow a run
-- Enrichment: a free quick website scan (socials, emails, phones, site signals), web search for owner names with visible evidence, and a paid website reader as the second pass, for one business or in bulk, with a spend cap per run, background polling, and fallbacks between them
-- The website scan fetches pages from addresses that come from Google listings, so it refuses private and local addresses (including through redirects), caps page size and time, and limits concurrency
-- Outreach tracker: pipeline stages, a call log shared across niches, follow-up dates, an Outreach page with due follow-ups and an objection tally, and a pitch brief per business
+**Not built yet:**
 
-Not built yet:
-
-- **Coverage panel and AI keyword discovery:** cost per new on-target place, saturation, probe runs
-- **Facebook ad checks:** the Ad Library lookup and the territory guard. The site scan already finds each business's Facebook page link, but whether it runs ads isn't checked yet, so the scoring's Facebook state is still empty.
+- **Meta Ad Library check.** Whether a Facebook page runs ads. The page and its ID are already saved, but the scoring's Facebook state is still empty.
+- **Coverage panel and AI keyword discovery:** cost per new on-target place, saturation, probe runs.
+- **Territory guard** for signed clients.
+- **Editing by hand:** typing an owner name, or clearing a wrong Facebook match.
 
 ## Setup
 
@@ -88,13 +89,14 @@ The SQLite database is created at `data/leadfinder.db` and migrated on first req
 | Env var | Purpose |
 | --- | --- |
 | `APIFY_TOKEN` | Your Apify API token. Required to launch runs. |
-| `APIFY_MAPS_ACTOR_ID` | Scraper actor. Defaults to `scraperlink/google-maps-scraper`. |
 | `APIFY_PLAN` | `free`, `starter`, `scale` or `business`. Picks the per-result rate used for cost estimates. |
 | `RUN_COST_CAP_USD` | Hard per-run cap sent to Apify as `maxTotalChargeUsd`. Default 5. |
-| `APIFY_SEARCH_ACTOR_ID` | Google search actor used to find owners. Defaults to `scraperlink/google-search-results-serp-scraper`. |
-| `APIFY_ENRICH_ACTOR_ID` | Website-reading actor (owner, emails, phones). Defaults to `menus-r-us/business-profile-enricher`. |
-| `OPENROUTER_API_KEY` | Your OpenRouter key. Needed only for the gray-zone review. |
-| `OPENROUTER_MODEL` | Model used for the review. |
+| `APIFY_MAPS_ACTOR_ID` | Maps scraper. Defaults to `scraperlink/google-maps-scraper`. |
+| `APIFY_SEARCH_ACTOR_ID` | Google search actor (owner and Facebook searches). Defaults to `scraperlink/google-search-results-serp-scraper`. |
+| `APIFY_ENRICH_ACTOR_ID` | Website-reading actor. Defaults to `menus-r-us/business-profile-enricher`. |
+| `AUTO_SCAN_ON_INGEST` | Set to `0` to stop the free quick scan from running after each Maps run. |
+| `OPENROUTER_API_KEY` | Your OpenRouter key. Used by the gray-zone review and the owner search. |
+| `OPENROUTER_MODEL` | Model used for both. |
 
 To open the dev server from another device on your network, add that device's host to `allowedDevOrigins` in `next.config.ts`.
 
@@ -110,12 +112,14 @@ To open the dev server from another device on your network, add that device's ho
 
 ## Stack
 
-Next.js (App Router) · Tailwind and shadcn · Framer Motion · SQLite through Drizzle · Leaflet with OpenStreetMap · Zod · Vitest.
+Next.js (App Router) · Tailwind and shadcn · Framer Motion · SQLite through Drizzle · Leaflet with OpenStreetMap · Cheerio · Zod · Vitest.
 
 ## Notes
 
+- **The website scan fetches addresses that come from Google listings**, so it refuses private and local addresses (including through redirects), caps page size and time, and limits concurrency.
 - `cid` is stored as text. The dataset JSON is pre-processed so 19-digit ids never pass through a JavaScript number.
 - Grid points are an estimate of the actor's search centres. `src/lib/geo.test.ts` checks them against the 14 centres from a real run.
 - Business photos are stored as Google image URLs, not downloaded. If they stop loading, the app falls back to an initials tile.
+- Press **D** to switch between light and dark mode.
 - Cache Components is turned off in `next.config.ts` on purpose: every page reads the local database per request.
-- Tests run against throwaway SQLite files, never your real database.
+- Tests run against throwaway SQLite files and stubbed network calls, never your real database or real Apify. (`APIFY_API_BASE`, `OPENROUTER_API_BASE` and `SITE_SCAN_ALLOW_PRIVATE` exist only so tests can point at local stand-ins. Don't set them for real use.)
