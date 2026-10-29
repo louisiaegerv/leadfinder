@@ -15,6 +15,8 @@ It runs on your own machine, with your own Apify and OpenRouter keys. There is n
    - **Web search (about a tenth of a cent):** googles for the owner and has your OpenRouter model read the results. It only accepts a name that a result states in its own text, and shows the quotes and sources so you can judge it.
    - **Paid website reader (about $0.015):** the second pass for sites the quick scan can't read. It also gets emails, phones and services.
 
+   The quick scan also runs on its own: when a Maps run finishes, the new places' websites are scanned in the background (the run list shows the progress), so a fresh run arrives already scored with the site signals. Only the free scan is automatic. Searches and the paid reader are always your click, and sites the scan couldn't read are just flagged. Set `AUTO_SCAN_ON_INGEST=0` to turn it off.
+
    Each can fall back to the next: sites the scan can't read can go to the paid reader, and businesses the search can't name can have their website read. The owner shows in the table, on the business page, and in the pitch brief ("Ask for …").
 6. **Work the list.** Log each call from a business's page: what happened, what you pitched, the objection you heard, and when to follow up. The stage (not contacted, dialed, in conversation, meeting booked, and so on) moves on its own. The Outreach page lists follow-ups that are due, and a pitch brief on each business gives you an opener, the evidence, and answers to likely objections.
 7. **Decide the gray zone.** Rules sort most businesses into target or noise. The ones they can't decide can be reviewed in a batch by an LLM through OpenRouter. You can always override a result by hand, and your choice wins.

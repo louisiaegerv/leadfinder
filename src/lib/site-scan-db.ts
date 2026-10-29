@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { contacts, enrichment, facebookProfiles, nichePlaces, places } from "@/db/schema";
+import { contacts, enrichment, facebookProfiles, nichePlaces, placeRuns, places, settings } from "@/db/schema";
 import { enrichableUrl } from "./enrich";
 import { getEnrichment, resolveTargets, saveOwner, startEnrichment } from "./enrich-db";
 import { nicheFilterWhere, type PlaceFilters } from "./queries";
@@ -162,6 +162,88 @@ export async function startPaidSecondPass(placeIds: string[]) {
   const targets = resolveTargets(placeIds).targets.filter((t) => !getEnrichment(t.placeId));
   if (targets.length === 0) return null;
   return startEnrichment(targets);
+}
+
+// ---------- scanning automatically after a run ----------
+
+/** Most websites one run scans on its own. Anything beyond that is left for the Enrich button. */
+const AUTO_SCAN_MAX = 400;
+const AUTO_CHUNK = 50;
+
+export const autoScanEnabled = () => process.env.AUTO_SCAN_ON_INGEST !== "0";
+
+export type AutoScanState =
+  | { state: "scanning"; total: number; done: number }
+  | { state: "done"; total: number; scanned: number; read: number; needsBrowser: number; unreachable: number; facebookFound: number; ownersFound: number }
+  | { state: "interrupted"; total: number; done: number }
+  | { state: "error"; message: string };
+
+const key = (runId: number) => `autoscan:${runId}`;
+const live = () => ((globalThis as unknown as { __autoScans?: Set<number> }).__autoScans ??= new Set<number>());
+
+function setAutoScan(runId: number, value: AutoScanState) {
+  db.insert(settings).values({ key: key(runId), value }).onConflictDoUpdate({ target: settings.key, set: { value } }).run();
+}
+
+/** Progress of a run's automatic scan. One that says "scanning" but isn't running in this process was cut off by a restart. */
+export function getAutoScan(runId: number): AutoScanState | null {
+  const row = db.select().from(settings).where(eq(settings.key, key(runId))).get();
+  const v = row?.value as AutoScanState | undefined;
+  if (!v) return null;
+  return v.state === "scanning" && !live().has(runId) ? { state: "interrupted", total: v.total, done: v.done } : v;
+}
+
+/** Places this run surfaced that have a real website, no scan yet, and aren't do-not-contact. */
+export function unscannedInRun(runId: number): string[] {
+  const rows = db
+    .selectDistinct({ placeId: places.placeId, website: places.website, domain: places.domain, dnc: contacts.doNotContact, scannedAt: enrichment.fetchedAt })
+    .from(placeRuns)
+    .innerJoin(places, eq(places.placeId, placeRuns.placeId))
+    .leftJoin(contacts, eq(contacts.placeId, places.placeId))
+    .leftJoin(enrichment, and(eq(enrichment.placeId, places.placeId), eq(enrichment.kind, KIND)))
+    .where(eq(placeRuns.runId, runId))
+    .all();
+  return rows.filter((r) => !r.dnc && !r.scannedAt && enrichableUrl(r)).map((r) => r.placeId);
+}
+
+/**
+ * Scan the new websites from a finished run in the background. Free, so it just runs. It never
+ * touches the paid reader: sites it can't read are left for you to send. Returns the running
+ * task (callers can ignore it; tests await it), or null if there was nothing to do.
+ */
+export function startAutoScan(runId: number, opts: { fetcher?: Fetcher } = {}): Promise<void> | null {
+  if (!autoScanEnabled() || live().has(runId)) return null;
+  let ids: string[];
+  try {
+    ids = unscannedInRun(runId).slice(0, AUTO_SCAN_MAX);
+  } catch {
+    return null; // never let this get in the way of the run finishing
+  }
+  if (ids.length === 0) return null;
+
+  live().add(runId);
+  setAutoScan(runId, { state: "scanning", total: ids.length, done: 0 });
+  return (async () => {
+    const t = { scanned: 0, read: 0, needsBrowser: 0, unreachable: 0, facebookFound: 0, ownersFound: 0 };
+    try {
+      for (let i = 0; i < ids.length; i += AUTO_CHUNK) {
+        const chunk = ids.slice(i, i + AUTO_CHUNK);
+        const s = await scanPlaces(chunk, { fetcher: opts.fetcher });
+        t.scanned += s.scanned;
+        t.read += s.outcomes.ok ?? 0;
+        t.needsBrowser += s.needsBrowser.length;
+        t.unreachable += (s.outcomes.dead ?? 0) + (s.outcomes.refused ?? 0) + (s.outcomes.not_html ?? 0);
+        t.facebookFound += s.facebookFound;
+        t.ownersFound += s.ownersFound;
+        setAutoScan(runId, { state: "scanning", total: ids.length, done: Math.min(ids.length, i + chunk.length) });
+      }
+      setAutoScan(runId, { state: "done", total: ids.length, ...t });
+    } catch (e) {
+      setAutoScan(runId, { state: "error", message: e instanceof Error ? e.message : String(e) });
+    } finally {
+      live().delete(runId);
+    }
+  })();
 }
 
 // ---------- reading ----------

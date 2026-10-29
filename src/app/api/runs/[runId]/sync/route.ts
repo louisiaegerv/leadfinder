@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { runs } from "@/db/schema";
 import { fetchDataset, getRun, TERMINAL } from "@/lib/apify";
 import { ingestItems } from "@/lib/ingest";
+import { startAutoScan } from "@/lib/site-scan-db";
 
 const STATUS_MAP: Record<string, "running" | "succeeded" | "failed" | "aborted"> = {
   READY: "running",
@@ -38,6 +39,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ runId: string
     if (status === "succeeded" && patch.datasetId) {
       const items = await fetchDataset(patch.datasetId);
       ingestItems(id, items);
+      startAutoScan(id); // free quick scan of the new websites, in the background
     }
   } catch (e) {
     return Response.json({ error: (e as Error).message }, { status: 502 });

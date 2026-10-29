@@ -6,6 +6,7 @@ import { NicheActions } from "@/components/niche-actions";
 import { RunList } from "@/components/run-list";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getAreas, getNiche, getRuns } from "@/lib/queries";
+import { getAutoScan } from "@/lib/site-scan-db";
 import { areaShape } from "@/lib/areas";
 import { gridPoints, polygonAreaKm2 } from "@/lib/geo";
 
@@ -83,6 +84,7 @@ export default async function NichePage({ params }: { params: Promise<{ id: stri
             estimatedCostUsd: run.estimatedCostUsd,
             error: run.error,
             createdAt: run.createdAt.getTime(),
+            scan: getAutoScan(run.id),
           }))}
         />
       </section>

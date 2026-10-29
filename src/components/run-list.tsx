@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import type { AutoScanState } from "@/lib/site-scan-db";
 
 export type RunRow = {
   id: number;
@@ -17,14 +18,46 @@ export type RunRow = {
   estimatedCostUsd: number | null;
   error: string | null;
   createdAt: number;
+  /** The free website scan that follows a run, if it started. */
+  scan: AutoScanState | null;
 };
 
 const ACTIVE = new Set(["running", "pending", "succeeded"]); // succeeded = awaiting ingest
 const POLL_MS = 6000;
 
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** One line about the website scan that follows a run. */
+function scanNote(s: AutoScanState | null): { text: string; busy?: boolean; warn?: boolean } | null {
+  if (!s) return null;
+  if (s.state === "scanning") return { text: `Scanning websites ${s.done}/${s.total}`, busy: true };
+  if (s.state === "interrupted") return { text: `Website scan stopped at ${s.done}/${s.total}. Use Enrich, then Quick scan, to finish.`, warn: true };
+  if (s.state === "error") return { text: `Website scan failed: ${s.message}`, warn: true };
+  const parts = [`${s.read} read`, s.needsBrowser ? `${s.needsBrowser} need a browser` : null, s.unreachable ? `${s.unreachable} not reachable` : null].filter(Boolean);
+  return { text: `Scanned ${plural(s.scanned, "website")}: ${parts.join(", ")}${s.facebookFound ? `. ${plural(s.facebookFound, "Facebook page")} linked` : ""}` };
+}
+
 export function RunList({ runs }: { runs: RunRow[] }) {
   const router = useRouter();
   const polling = useRef(new Set<number>());
+  const lastScan = useRef(new Map<number, string>());
+
+  // A scan runs in the background after a run is ingested: keep the page fresh until it finishes, and say so when it does.
+  const scanning = runs.some((r) => r.scan?.state === "scanning");
+  useEffect(() => {
+    for (const r of runs) {
+      const prev = lastScan.current.get(r.id);
+      if (prev === "scanning" && r.scan?.state === "done") {
+        toast.success(`Run #${r.id}: website scan finished`, { description: scanNote(r.scan)?.text });
+      }
+      lastScan.current.set(r.id, r.scan?.state ?? "none");
+    }
+  }, [runs]);
+  useEffect(() => {
+    if (!scanning) return;
+    const id = setInterval(() => router.refresh(), 5000);
+    return () => clearInterval(id);
+  }, [scanning, router]);
 
   useEffect(() => {
     const active = runs.filter((r) => ACTIVE.has(r.status));
@@ -88,6 +121,16 @@ export function RunList({ runs }: { runs: RunRow[] }) {
                   {r.status === "succeeded" ? "ingesting" : r.status}
                 </Badge>
                 {r.error && <div className="mt-1 max-w-xs truncate text-xs text-destructive" title={r.error}>{r.error}</div>}
+                {(() => {
+                  const note = scanNote(r.scan);
+                  return (
+                    note && (
+                      <div className={`mt-1 flex max-w-sm items-center gap-1 text-xs ${note.warn ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground"}`}>
+                        {note.busy && <Loader2 className="size-3 shrink-0 animate-spin" />} {note.text}
+                      </div>
+                    )
+                  );
+                })()}
               </td>
               <td className="px-3 py-2 text-right tabular-nums">{r.resultCount ?? "–"}</td>
               <td className="px-3 py-2 text-right tabular-nums">{r.newPlaceCount ?? "–"}</td>

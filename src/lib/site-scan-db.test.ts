@@ -198,4 +198,60 @@ describe("scanning prospects", () => {
     expect(r.scanned).toBe(1);
     expect(sd.getSiteScan("PLAIN")!.scan).toMatchObject({ emails: ["hi@plain.com"], signals: { viewport: true } });
   });
+
+  describe("after a Maps run finishes", () => {
+    let runId = 0;
+    const ids = ["AUTO1", "AUTO2", "AUTO3", "AUTO4", "AUTO5"];
+
+    beforeAll(() => {
+      sites["https://auto1.com/"] = ok(html(`<p>${FILL}</p><a href="https://www.facebook.com/Auto1">f</a>`), "https://auto1.com/");
+      sites["https://auto2.com/"] = ok("<html><body><div id=root></div></body></html>", "https://auto2.com/");
+      sites["https://auto4.com/"] = ok(html(`<p>${FILL}</p>`), "https://auto4.com/");
+      mk("AUTO1", "https://auto1.com/");
+      mk("AUTO2", "https://auto2.com/");
+      mk("AUTO3", null); // no website
+      mk("AUTO4", "https://auto4.com/"); // scanned already, by hand
+      mk("AUTO5", "https://auto5.com/"); // do-not-contact
+      db.insert(s.contacts).values({ placeId: "AUTO5", doNotContact: true }).run();
+      const area = db.insert(s.areas).values({ nicheId, name: "Auto area", shape: "radius", centerLat: 30, centerLng: -95, radiusKm: 10, queries: ["q"] }).returning().get();
+      runId = db.insert(s.runs).values({ areaId: area.id, inputs: {}, status: "ingested" }).returning().get().id;
+      for (const id of ids) db.insert(s.placeRuns).values({ placeId: id, runId, query: "q" }).run();
+    });
+
+    it("picks only this run's places that have a real website, are unscanned, and are not do-not-contact", async () => {
+      await sd.scanPlaces(["AUTO4"], { fetcher }); // already scanned
+      expect(sd.unscannedInRun(runId).sort()).toEqual(["AUTO1", "AUTO2"]);
+      expect(sd.unscannedInRun(999999)).toEqual([]);
+    });
+
+    it("does nothing when switched off", () => {
+      process.env.AUTO_SCAN_ON_INGEST = "0";
+      expect(sd.startAutoScan(runId, { fetcher })).toBeNull();
+      expect(sd.getAutoScan(runId)).toBeNull();
+      delete process.env.AUTO_SCAN_ON_INGEST;
+    });
+
+    it("scans in the background, reports progress and a summary, never starts twice, and never touches the paid reader", async () => {
+      const before = apify.length;
+      const task = sd.startAutoScan(runId, { fetcher });
+      expect(task).not.toBeNull();
+      expect(sd.startAutoScan(runId, { fetcher })).toBeNull(); // already running
+      expect(sd.getAutoScan(runId)).toEqual({ state: "scanning", total: 2, done: 0 });
+      await task;
+
+      expect(sd.getAutoScan(runId)).toEqual({ state: "done", total: 2, scanned: 2, read: 1, needsBrowser: 1, unreachable: 0, facebookFound: 1, ownersFound: 0 });
+      expect(sd.getSiteScan("AUTO1")!.scan.outcome).toBe("ok");
+      expect(sd.getSiteScan("AUTO2")!.scan.outcome).toBe("blank"); // flagged, but left for you to send
+      expect(apify.length).toBe(before); // nothing was sent to Apify
+      expect(db.select().from(s.facebookProfiles).where(eq(s.facebookProfiles.placeId, "AUTO1")).get()?.pageUrl).toBe("https://www.facebook.com/Auto1");
+
+      // everything is scanned now, so a repeat finds nothing to do
+      expect(sd.startAutoScan(runId, { fetcher })).toBeNull();
+    });
+
+    it("shows a scan that was cut off by a restart as interrupted, not as running forever", () => {
+      db.insert(s.settings).values({ key: "autoscan:424242", value: { state: "scanning", total: 10, done: 4 } }).run();
+      expect(sd.getAutoScan(424242)).toEqual({ state: "interrupted", total: 10, done: 4 });
+    });
+  });
 });
