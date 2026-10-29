@@ -43,6 +43,10 @@ export default async function AreaPage({ params }: { params: Promise<{ id: strin
                 skipClosedPlaces: area.skipClosedPlaces,
                 gl: area.gl,
                 hl: area.hl,
+                reviews: area.reviews,
+                maxReviews: area.maxReviews,
+                searchOwners: area.searchOwners,
+                searchFacebook: area.searchFacebook,
               }
             : null
         }

@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { areas, nichePlaces, niches, placeRuns, places, runs } from "@/db/schema";
 import { assignArea, areaShape } from "./areas";
@@ -53,14 +53,16 @@ export function ingestItems(runId: number, items: Raw[]): IngestResult {
   const now = new Date();
   let newPlaceCount = 0;
   let newGlobalCount = 0;
+  const reviewed: string[] = []; // places this run brought review data for
 
   db.transaction((tx) => {
     for (const p of uniquePlaces.values()) {
       if (!knownPlaces.has(p.placeId)) newGlobalCount++;
-      const { placeId, imageUrl, thumbnailUrl, logoUrl, photosCount, ...fields } = p;
+      const { placeId, imageUrl, thumbnailUrl, logoUrl, photosCount, reviewSample, ...fields } = p;
       const images = { imageUrl, thumbnailUrl, logoUrl, photosCount };
+      if (reviewSample) reviewed.push(placeId);
       tx.insert(places)
-        .values({ placeId, ...fields, ...images, scrapedAt: now, firstSeenAt: now })
+        .values({ placeId, ...fields, ...images, reviewSample, reviewsSampledAt: reviewSample ? now : null, scrapedAt: now, firstSeenAt: now })
         .onConflictDoUpdate({
           target: places.placeId,
           set: {
@@ -70,6 +72,9 @@ export function ingestItems(runId: number, items: Raw[]): IngestResult {
             thumbnailUrl: sql`coalesce(excluded.thumbnail_url, ${places.thumbnailUrl})`,
             logoUrl: sql`coalesce(excluded.logo_url, ${places.logoUrl})`,
             photosCount: sql`coalesce(excluded.photos_count, ${places.photosCount})`,
+            // Same for reviews: a run that did not ask for them leaves an earlier sample alone, and one that did replaces it.
+            reviewSample: sql`coalesce(excluded.review_sample, ${places.reviewSample})`,
+            reviewsSampledAt: sql`case when excluded.review_sample is not null then excluded.reviews_sampled_at else ${places.reviewsSampledAt} end`,
             scrapedAt: now,
           },
         })
@@ -125,6 +130,17 @@ export function ingestItems(runId: number, items: Raw[]): IngestResult {
 
   // Peer benchmarks span the whole niche, so score everything after each ingest.
   rescoreNiche(niche.id);
+
+  // Review data belongs to the place, not the niche: any other niche tracking a place that just got reviews changes too.
+  if (reviewed.length > 0) {
+    const others = new Set<number>();
+    for (let i = 0; i < reviewed.length; i += 500) {
+      const rows = db.selectDistinct({ id: nichePlaces.nicheId }).from(nichePlaces).where(inArray(nichePlaces.placeId, reviewed.slice(i, i + 500))).all();
+      for (const r of rows) others.add(r.id);
+    }
+    others.delete(niche.id);
+    for (const id of others) rescoreNiche(id);
+  }
 
   return { resultCount: uniquePlaces.size, newPlaceCount, newGlobalCount };
 }

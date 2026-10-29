@@ -23,6 +23,8 @@ import {
   type ApifyPlan,
   type Shape,
 } from "@/lib/geo";
+import { MAX_SEARCH_PER_CLICK, SEARCH_PAGE_USD, SEARCH_PER_BUSINESS_USD } from "@/lib/owner-search";
+import { DEFAULT_MAX_REVIEWS, MAX_REVIEWS_LIMIT, REVIEW_RATE_PER_1000, reviewCostUsd } from "@/lib/reviews";
 import { lines } from "@/lib/text";
 
 const AreaMap = dynamic(() => import("./area-map"), {
@@ -42,6 +44,10 @@ export type AreaEditorProps = {
     skipClosedPlaces: boolean;
     gl: string;
     hl: string;
+    reviews: boolean;
+    maxReviews: number;
+    searchOwners: boolean;
+    searchFacebook: boolean;
   } | null;
   /** Queries already used in this niche's other areas, offered for reuse. */
   reusableQueries: string[];
@@ -65,6 +71,10 @@ export default function AreaEditor({ nicheId, area, reusableQueries, defaultQuer
   const [skipClosed, setSkipClosed] = useState(area?.skipClosedPlaces ?? true);
   const [gl, setGl] = useState(area?.gl ?? "us");
   const [hl, setHl] = useState(area?.hl ?? "en");
+  const [reviews, setReviews] = useState(area?.reviews ?? false);
+  const [maxReviews, setMaxReviews] = useState(area?.maxReviews ?? DEFAULT_MAX_REVIEWS);
+  const [searchOwners, setSearchOwners] = useState(area?.searchOwners ?? false);
+  const [searchFacebook, setSearchFacebook] = useState(area?.searchFacebook ?? false);
   const [search, setSearch] = useState("");
   const [flyTo, setFlyTo] = useState<{ lat: number; lng: number; zoom?: number } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -73,8 +83,14 @@ export default function AreaEditor({ nicheId, area, reusableQueries, defaultQuer
   const queries = useMemo(() => lines(queryText), [queryText]);
   const points = useMemo(() => (shape ? gridPoints(shape, spacing) : []), [shape, spacing]);
   const est = useMemo(() => estimateResults({ points: points.length, queries: queries.length, num }), [points.length, queries.length, num]);
-  const likelyCost = estimateCostUsd(est.likely, plan);
-  const maxCost = estimateCostUsd(est.max, plan);
+  const reviewsPerPlace = reviews ? maxReviews : 0;
+  const likelyCost = estimateCostUsd(est.likely, plan, reviewsPerPlace);
+  const maxCost = estimateCostUsd(est.max, plan, reviewsPerPlace);
+  const likelyReviewCost = reviewCostUsd(est.likely, reviewsPerPlace);
+  // The after-run searches cover the first MAX_SEARCH_PER_CLICK businesses that still need them.
+  const searchCovers = Math.min(est.likely, MAX_SEARCH_PER_CLICK);
+  const ownerSearchCost = searchOwners ? searchCovers * SEARCH_PER_BUSINESS_USD : 0;
+  const facebookSearchCost = searchFacebook ? searchCovers * SEARCH_PAGE_USD : 0;
 
   const canSave = !!shape && queries.length > 0 && name.trim().length > 0;
 
@@ -93,6 +109,10 @@ export default function AreaEditor({ nicheId, area, reusableQueries, defaultQuer
       skipClosedPlaces: skipClosed,
       gl,
       hl,
+      reviews,
+      maxReviews,
+      searchOwners,
+      searchFacebook,
     };
   }
 
@@ -124,7 +144,7 @@ export default function AreaEditor({ nicheId, area, reusableQueries, defaultQuer
       const res = await fetch(`/api/areas/${id}/launch`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ num, skipClosedPlaces: skipClosed, gl, hl }),
+        body: JSON.stringify({ num, skipClosedPlaces: skipClosed, gl, hl, reviews, maxReviews, searchOwners, searchFacebook }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Launch failed");
@@ -260,6 +280,52 @@ export default function AreaEditor({ nicheId, area, reusableQueries, defaultQuer
               Skip closed places
               <Switch checked={skipClosed} onCheckedChange={setSkipClosed} />
             </label>
+            <div className="space-y-2 rounded-lg border p-3">
+              <label className="flex items-center justify-between text-sm font-medium">
+                Include the newest reviews
+                <Switch checked={reviews} onCheckedChange={setReviews} />
+              </label>
+              <p className="text-xs text-muted-foreground">
+                Shows how recently each business has been getting reviews, and whether the owner replies. A long gap points to the review system; a
+                big review base that has gone quiet points to reactivation. Adds ${REVIEW_RATE_PER_1000.toFixed(2)} per 1,000 reviews returned. Places already in
+                your database get their review data filled in and are rescored.
+              </p>
+              {reviews && (
+                <div className="flex items-center gap-2 text-sm">
+                  <Label className="whitespace-nowrap">Reviews per place</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={MAX_REVIEWS_LIMIT}
+                    className="w-20"
+                    value={maxReviews}
+                    onChange={(e) => setMaxReviews(Math.min(MAX_REVIEWS_LIMIT, Math.max(1, Math.round(Number(e.target.value)) || DEFAULT_MAX_REVIEWS)))}
+                  />
+                  <span className="text-xs text-muted-foreground">newest first; 5 is enough to date the last review</span>
+                </div>
+              )}
+            </div>
+            <div className="space-y-2 rounded-lg border p-3">
+              <div className="text-sm font-medium">After the run: paid searches</div>
+              <p className="text-xs text-muted-foreground">
+                Off by default, since each costs money. They start on their own once the run&apos;s businesses are in, for the first {MAX_SEARCH_PER_CLICK} that don&apos;t
+                have the answer yet. The free website scan always runs, and the paid website reader is never automatic.
+              </p>
+              <label className="flex items-start justify-between gap-3 text-sm">
+                <span>
+                  Search the web for owner names
+                  <span className="block text-xs text-muted-foreground">About ${SEARCH_PER_BUSINESS_USD.toFixed(4)} each: a Google search, then your model reads the results.</span>
+                </span>
+                <Switch checked={searchOwners} onCheckedChange={setSearchOwners} />
+              </label>
+              <label className="flex items-start justify-between gap-3 text-sm">
+                <span>
+                  Find Facebook pages
+                  <span className="block text-xs text-muted-foreground">About ${SEARCH_PAGE_USD.toFixed(4)} each: a Google search for the name, city and state plus “Facebook”.</span>
+                </span>
+                <Switch checked={searchFacebook} onCheckedChange={setSearchFacebook} />
+              </label>
+            </div>
           </CardContent>
         </Card>
 
@@ -278,6 +344,18 @@ export default function AreaEditor({ nicheId, area, reusableQueries, defaultQuer
               <dd className="text-right font-medium">{points.length ? `${est.likely.toLocaleString()} / ${est.max.toLocaleString()}` : "–"}</dd>
               <dt className="text-muted-foreground">Cost (likely / max)</dt>
               <dd className="text-right font-medium">{points.length ? `${money(likelyCost)} / ${money(maxCost)}` : "–"}</dd>
+              {reviews && (
+                <>
+                  <dt className="text-muted-foreground">of which reviews (up to)</dt>
+                  <dd className="text-right font-medium">{points.length ? money(likelyReviewCost) : "–"}</dd>
+                </>
+              )}
+              {(searchOwners || searchFacebook) && (
+                <>
+                  <dt className="text-muted-foreground">After-run searches (up to)</dt>
+                  <dd className="text-right font-medium">{points.length ? money(ownerSearchCost + facebookSearchCost) : "–"}</dd>
+                </>
+              )}
             </dl>
             <p className="mt-2 text-xs text-muted-foreground">
               {plan} plan: ${RATE_PER_1000[plan].toFixed(2)} per 1,000 results. Max assumes every query returns {num} results.
@@ -314,7 +392,12 @@ export default function AreaEditor({ nicheId, area, reusableQueries, defaultQuer
           <ul className="space-y-1 text-sm">
             <li>{queries.length} {queries.length === 1 ? "query" : "queries"} × {points.length} grid points, up to {num} results per query</li>
             <li>Time {fmtTime(estimateSeconds(points.length))}</li>
+            {reviews && (
+              <li>Includes the newest {maxReviews} reviews of each place (up to {money(likelyReviewCost)} of the likely cost)</li>
+            )}
             <li>Likely cost {money(likelyCost)}, worst case {money(maxCost)}</li>
+            {searchOwners && <li>Then searches the web for owner names, up to {money(ownerSearchCost)} more</li>}
+            {searchFacebook && <li>Then looks for Facebook pages, up to {money(facebookSearchCost)} more</li>}
             <li className="text-muted-foreground">Hard cap sent to Apify: {money(costCapUsd)}. Change with RUN_COST_CAP_USD.</li>
           </ul>
           <DialogFooter>

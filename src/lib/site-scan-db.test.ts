@@ -65,8 +65,16 @@ describe("site signals in scoring", () => {
   it("facebook ads: pixel is labelled an inference, and a linked page counts only until the page has been checked", () => {
     const e = evidence({ ...base, site: sig({ fbPixel: true, facebookUrl: "https://facebook.com/acme" }) }, "facebook_ads");
     expect(e).toContain("(inferred) Facebook Pixel on the site");
-    expect(e).toContain("Links a Facebook page from its website");
-    expect(evidence({ ...base, facebookState: "page_no_ads", site: sig({ facebookUrl: "https://facebook.com/acme" }) }, "facebook_ads")).not.toContain("Links a Facebook page");
+    expect(e).toContain("Has a Facebook page, so it is active on the platform");
+    expect(evidence({ ...base, facebookState: "page_no_ads", site: sig({ facebookUrl: "https://facebook.com/acme" }) }, "facebook_ads")).not.toContain("so it is active on the platform");
+  });
+
+  it("facebook ads: a page found by search counts the same as one linked from the site, and only once", () => {
+    const viaSearch = evidence({ ...base, facebookPageUrl: "https://www.facebook.com/acme" }, "facebook_ads");
+    expect(viaSearch).toContain("Has a Facebook page, so it is active on the platform");
+    const both = evidence({ ...base, facebookPageUrl: "https://www.facebook.com/acme", site: sig({ facebookUrl: "https://facebook.com/acme" }) }, "facebook_ads");
+    expect(both.split("Has a Facebook page").length - 1).toBe(1);
+    expect(evidence(base, "facebook_ads")).not.toContain("so it is active on the platform");
   });
 });
 

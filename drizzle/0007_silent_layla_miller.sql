@@ -1,0 +1,1 @@
+ALTER TABLE `facebook_profiles` ADD `page_id` text;

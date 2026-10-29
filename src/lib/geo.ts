@@ -1,3 +1,5 @@
+import { reviewCostUsd } from "./reviews";
+
 export type LatLng = { lat: number; lng: number };
 
 export type Shape =
@@ -110,8 +112,17 @@ export const RATE_PER_1000: Record<ApifyPlan, number> = {
   business: 0.25,
 };
 
-export function estimateCostUsd(uniqueResults: number, plan: ApifyPlan): number {
-  return (uniqueResults * RATE_PER_1000[plan]) / 1000 + 0.00005;
+/**
+ * Fetching reviews for places we already know (by place id, no search area): the actor's per-place charge plus
+ * the reviews, as an upper bound since only reviews actually returned are billed.
+ */
+export function estimateReviewFetchUsd(places: number, reviewsPerPlace: number, plan: ApifyPlan): number {
+  return places > 0 ? (places * RATE_PER_1000[plan]) / 1000 + 0.00005 + reviewCostUsd(places, reviewsPerPlace) : 0;
+}
+
+/** `reviewsPerPlace` adds the review add-on, as an upper bound: the actor bills reviews actually returned. */
+export function estimateCostUsd(uniqueResults: number, plan: ApifyPlan, reviewsPerPlace = 0): number {
+  return (uniqueResults * RATE_PER_1000[plan]) / 1000 + 0.00005 + reviewCostUsd(uniqueResults, reviewsPerPlace);
 }
 
 /**

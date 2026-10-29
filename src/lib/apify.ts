@@ -24,6 +24,8 @@ export const KEEP_FIELDS = [
   "imageUrl", "thumbnailUrl", "logoUrl", "imagesCount",
   "query", "searchString", "searchCenter", "searchGridIndex",
 ];
+/** Added to `fields` when reviews are requested, so the trimmed output still includes them. */
+const REVIEW_FIELDS = ["reviews"];
 
 export type MapsInputOpts = {
   queries: string[];
@@ -33,6 +35,9 @@ export type MapsInputOpts = {
   skipClosedPlaces: boolean;
   gl: string;
   hl: string;
+  /** Ask for the newest reviews of each place (+$0.25 per 1,000 returned). Sorted newest first so recency is meaningful. */
+  reviews?: boolean;
+  maxReviews?: number;
 };
 
 export function buildMapsInput(o: MapsInputOpts): Record<string, unknown> {
@@ -43,8 +48,13 @@ export function buildMapsInput(o: MapsInputOpts): Record<string, unknown> {
     hl: o.hl,
     skipClosedPlaces: o.skipClosedPlaces,
     gridSpacingKm: o.gridSpacingKm,
-    fields: KEEP_FIELDS.join(","),
+    fields: [...KEEP_FIELDS, ...(o.reviews ? REVIEW_FIELDS : [])].join(","),
   };
+  if (o.reviews) {
+    input.reviews = true;
+    input.maxReviews = o.maxReviews ?? 5;
+    input.reviewsSort = "newest";
+  }
   // radius OR polygon, never both
   if (o.shape.shape === "radius") {
     input.latitude = o.shape.centerLat;
@@ -54,6 +64,22 @@ export function buildMapsInput(o: MapsInputOpts): Record<string, unknown> {
     input.polygon = o.shape.polygon; // [lat, lng] pairs
   }
   return input;
+}
+
+/**
+ * A Maps run for specific places, by Google place id, instead of an area search: no query, no grid, no geometry.
+ * Returns only what is needed to refresh a place's reviews, so it costs the per-place charge plus the reviews.
+ */
+export function buildPlaceIdsInput(o: { placeIds: string[]; maxReviews: number; gl: string; hl: string }): Record<string, unknown> {
+  return {
+    placeIds: o.placeIds,
+    reviews: true,
+    maxReviews: o.maxReviews,
+    reviewsSort: "newest",
+    gl: o.gl,
+    hl: o.hl,
+    fields: "placeId,title,totalScore,reviewsCount,reviews",
+  };
 }
 
 function token(): string {

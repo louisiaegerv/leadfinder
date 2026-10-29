@@ -5,6 +5,7 @@ import { areas, runs } from "@/db/schema";
 import { areaShape } from "@/lib/areas";
 import { buildMapsInput, PLAN, RUN_COST_CAP_USD, startRun } from "@/lib/apify";
 import { estimateCostUsd, estimateResults, estimateSeconds, gridPoints } from "@/lib/geo";
+import { savePostRunOptions } from "@/lib/post-run";
 
 // Optional overrides; anything omitted falls back to the values saved on the area.
 const body = z.object({
@@ -12,6 +13,10 @@ const body = z.object({
   skipClosedPlaces: z.boolean().optional(),
   gl: z.string().length(2).optional(),
   hl: z.string().min(2).max(5).optional(),
+  reviews: z.boolean().optional(),
+  maxReviews: z.number().int().min(1).max(50).optional(),
+  searchOwners: z.boolean().optional(),
+  searchFacebook: z.boolean().optional(),
 });
 
 export async function POST(req: Request, ctx: { params: Promise<{ areaId: string }> }) {
@@ -34,11 +39,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ areaId: string
     skipClosedPlaces: opts.data.skipClosedPlaces ?? area.skipClosedPlaces,
     gl: opts.data.gl ?? area.gl,
     hl: opts.data.hl ?? area.hl,
+    reviews: opts.data.reviews ?? area.reviews,
+    maxReviews: opts.data.maxReviews ?? area.maxReviews,
   };
+  const reviewsPerPlace = setup.reviews ? setup.maxReviews : 0;
   const points = gridPoints(shape, area.gridSpacingKm).length;
   const est = estimateResults({ points, queries: area.queries.length, num: setup.num });
   const plan = PLAN();
-  const maxCost = estimateCostUsd(est.max, plan);
+  const maxCost = estimateCostUsd(est.max, plan, reviewsPerPlace);
   const cap = RUN_COST_CAP_USD();
 
   const input = buildMapsInput({
@@ -61,11 +69,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ areaId: string
         inputs: input,
         status: "running",
         estimatedPoints: points,
-        estimatedCostUsd: estimateCostUsd(est.likely, plan),
+        estimatedCostUsd: estimateCostUsd(est.likely, plan, reviewsPerPlace),
         startedAt: new Date(),
       })
       .returning()
       .get();
+    // Remember what was ticked for this run, so the searches follow once its places are in.
+    savePostRunOptions(run.id, {
+      searchOwners: opts.data.searchOwners ?? area.searchOwners,
+      searchFacebook: opts.data.searchFacebook ?? area.searchFacebook,
+    });
     return Response.json({
       run,
       estimate: { points, seconds: estimateSeconds(points), likelyResults: est.likely, maxCostUsd: maxCost, capUsd: cap },

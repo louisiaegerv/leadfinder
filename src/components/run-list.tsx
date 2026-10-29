@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import type { PostRunState } from "@/lib/post-run";
 import type { AutoScanState } from "@/lib/site-scan-db";
 
 export type RunRow = {
@@ -20,12 +21,23 @@ export type RunRow = {
   createdAt: number;
   /** The free website scan that follows a run, if it started. */
   scan: AutoScanState | null;
+  /** The paid searches ticked for this run, once started. */
+  postRun: PostRunState | null;
 };
 
 const ACTIVE = new Set(["running", "pending", "succeeded"]); // succeeded = awaiting ingest
 const POLL_MS = 6000;
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** One line about the paid searches that were ticked for a run. */
+function postRunNote(p: PostRunState | null): { text: string; warn?: boolean } | null {
+  if (!p) return null;
+  if (p.errors?.length) return { text: p.errors.join(" "), warn: true };
+  if (!p.started) return { text: "Paid searches will start once the places are in" };
+  const parts = [p.started.owners ? `owner search for ${plural(p.started.owners, "business", "businesses")}` : null, p.started.facebook ? `Facebook search for ${plural(p.started.facebook, "business", "businesses")}` : null].filter(Boolean);
+  return { text: parts.length ? `Started ${parts.join(" and ")}. Results arrive as they finish.` : "Paid searches ticked, but every business was already covered." };
+}
 
 /** One line about the website scan that follows a run. */
 function scanNote(s: AutoScanState | null): { text: string; busy?: boolean; warn?: boolean } | null {
@@ -121,6 +133,10 @@ export function RunList({ runs }: { runs: RunRow[] }) {
                   {r.status === "succeeded" ? "ingesting" : r.status}
                 </Badge>
                 {r.error && <div className="mt-1 max-w-xs truncate text-xs text-destructive" title={r.error}>{r.error}</div>}
+                {(() => {
+                  const note = postRunNote(r.postRun);
+                  return note && <div className={`mt-1 max-w-sm text-xs ${note.warn ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground"}`}>{note.text}</div>;
+                })()}
                 {(() => {
                   const note = scanNote(r.scan);
                   return (

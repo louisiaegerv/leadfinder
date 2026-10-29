@@ -1,13 +1,17 @@
 import { z } from "zod";
 import { findCandidates, resolveTargets, startEnrichment, type Target } from "@/lib/enrich-db";
+import { MAX_FACEBOOK_PER_CLICK, findFacebookCandidates, resolveFacebookTargets, startFacebookSearch } from "@/lib/facebook-search-db";
 import { MAX_SEARCH_PER_CLICK } from "@/lib/owner-search";
+import { MAX_REVIEW_FETCH_PER_CLICK, findReviewCandidates, resolveReviewTargets, startReviewFetch } from "@/lib/reviews-fetch-db";
 import { findSearchCandidates, resolveSearchTargets, startOwnerSearch } from "@/lib/owner-search-db";
 import { MAX_SCAN_PER_CLICK, findScanCandidates, resolveScanTargets, scanPlaces, startPaidSecondPass } from "@/lib/site-scan-db";
 import { parseFilters } from "@/lib/queries";
 
 const common = {
   /** "scan" reads the website directly (free); "search" googles for the owner (cheap); "site" uses the paid website reader. */
-  method: z.enum(["scan", "search", "site"]).default("search"),
+  method: z.enum(["scan", "search", "facebook", "reviews", "site"]).default("search"),
+  /** Reviews only: how many of the newest reviews to fetch per place. */
+  maxReviews: z.number().int().min(1).max(50).default(5),
   /** Search: read the website too when no owner is found. Scan: send sites it couldn't read to the paid reader. */
   fallback: z.boolean().default(false),
 };
@@ -47,6 +51,24 @@ export async function POST(req: Request) {
         }
       }
       return Response.json({ ...summary, count: summary.scanned, paidStarted: paid?.count ?? 0, paidEstimatedUsd: paid?.estimatedUsd ?? 0, paidError, skipped });
+    }
+
+    if (d.method === "reviews") {
+      let ids: string[];
+      let skipped: { placeId: string; reason: string }[] = [];
+      if (hand) ({ placeIds: ids, skipped } = resolveReviewTargets(d.placeIds));
+      else ids = findReviewCandidates(d.nicheId, parseFilters(d.filters), Math.min(d.limit, MAX_REVIEW_FETCH_PER_CLICK)).placeIds;
+      if (ids.length === 0) return Response.json({ error: skipped[0] ? `Nothing to fetch: ${skipped[0].reason}` : "Nothing to fetch" }, { status: 422 });
+      return Response.json({ ...(await startReviewFetch(ids, d.maxReviews)), skipped });
+    }
+
+    if (d.method === "facebook") {
+      let ids: string[];
+      let skipped: { placeId: string; reason: string }[] = [];
+      if (hand) ({ placeIds: ids, skipped } = resolveFacebookTargets(d.placeIds));
+      else ids = findFacebookCandidates(d.nicheId, parseFilters(d.filters), Math.min(d.limit, MAX_FACEBOOK_PER_CLICK)).placeIds;
+      if (ids.length === 0) return Response.json({ error: skipped[0] ? `Nothing to look up: ${skipped[0].reason}` : "Nothing to look up" }, { status: 422 });
+      return Response.json({ ...(await startFacebookSearch(ids)), skipped });
     }
 
     if (d.method === "search") {

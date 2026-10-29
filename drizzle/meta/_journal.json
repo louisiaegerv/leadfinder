@@ -43,6 +43,27 @@
       "when": 1793248664469,
       "tag": "0005_polite_shadow_king",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1793257614857,
+      "tag": "0006_brief_kinsey_walden",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1793258389092,
+      "tag": "0007_silent_layla_miller",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1793258801102,
+      "tag": "0008_cute_emma_frost",
+      "breakpoints": true
     }
   ]
 }

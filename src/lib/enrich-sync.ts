@@ -1,5 +1,7 @@
 import { syncEnrichment } from "./enrich-db";
+import { syncFacebook } from "./facebook-search-db";
 import { syncSearch } from "./owner-search-db";
+import { syncReviews } from "./reviews-fetch-db";
 import { db } from "@/db";
 import { enrichmentRuns } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -9,6 +11,8 @@ export async function syncRun(id: number) {
   const run = db.select().from(enrichmentRuns).where(eq(enrichmentRuns.id, id)).get();
   if (!run) return null;
   if (run.kind === "search") return syncSearch(id);
+  if (run.kind === "facebook") return syncFacebook(id);
+  if (run.kind === "reviews") return syncReviews(id);
   const done = await syncEnrichment(id);
   return done ? { run: done, fallbackStarted: 0 } : null;
 }

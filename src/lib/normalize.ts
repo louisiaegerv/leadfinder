@@ -1,4 +1,5 @@
 /** Normalize one Apify Google Maps item into the fields we keep. */
+import { readReviews, type ReviewSample } from "./reviews";
 
 export type NormalizedPlace = {
   placeId: string;
@@ -26,6 +27,8 @@ export type NormalizedPlace = {
   thumbnailUrl: string | null;
   logoUrl: string | null;
   photosCount: number | null;
+  /** The newest reviews if the run asked for them; null when it did not, so older data is never wiped. */
+  reviewSample: ReviewSample[] | null;
 };
 
 export type Provenance = {
@@ -128,6 +131,7 @@ export function normalizeItem(raw: Raw): { place: NormalizedPlace; prov: Provena
       thumbnailUrl: str(raw.thumbnailUrl) ?? firstGalleryThumb(raw),
       logoUrl: str(raw.logoUrl),
       photosCount: num(raw.imagesCount),
+      reviewSample: readReviews(raw.reviews),
     },
     prov: {
       query: str(raw.query) ?? str(raw.searchString) ?? "",

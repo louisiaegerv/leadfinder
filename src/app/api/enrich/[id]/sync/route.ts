@@ -12,6 +12,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       status: run.status,
       enriched: run.enrichedCount,
       owners: run.ownerCount,
+      found: run.ownerCount, // owner names for an owner search, Facebook pages for a Facebook search
       requested: run.targets.length,
       costUsd: run.costUsd,
       error: run.error,

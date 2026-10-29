@@ -7,9 +7,11 @@ import { CallLogPanel } from "@/components/call-log-panel";
 import { DetailTabs } from "@/components/detail-tabs";
 import { EnrichButton } from "@/components/enrich-button";
 import { EnrichmentCard } from "@/components/enrichment-card";
+import { FacebookCard } from "@/components/facebook-card";
 import { FadeIn } from "@/components/fade-in";
 import { PitchBrief } from "@/components/pitch-brief";
 import { PlaceControls } from "@/components/place-controls";
+import { RecentReviews } from "@/components/recent-reviews";
 import { PlaceThumb } from "@/components/place-thumb";
 import { OfferChip, ScoreBadge } from "@/components/score-bits";
 import { CapacityTip, FitGateTip, GapsTip, ReachabilityTip } from "@/components/score-help";
@@ -19,6 +21,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { parseTab } from "@/lib/detail-tab";
 import { enrichableUrl } from "@/lib/enrich";
 import { getEnrichment, placesInFlight } from "@/lib/enrich-db";
+import { getFacebookSearch } from "@/lib/facebook-search-db";
 import { getOwnerSearch } from "@/lib/owner-search-db";
 import { getContactInfo, getSiteScan } from "@/lib/site-scan-db";
 import { isStreetView } from "@/lib/images";
@@ -28,13 +31,6 @@ import { getCallLog } from "@/lib/outreach-db";
 import { buildBrief } from "@/lib/pitch";
 import { getNiche, getPlaceDetail } from "@/lib/queries";
 import { cn } from "@/lib/utils";
-
-const FB_LABEL = {
-  no_page: "No Facebook page found",
-  page_no_ads: "Facebook page, no active ads",
-  active_ads: "Running Facebook ads",
-  active_ads_weak_landing: "Running ads to a weak landing page",
-} as const;
 
 function decode(id: string) {
   try {
@@ -70,6 +66,7 @@ export default async function PlaceDetailPage({
   }));
   const enrichment = getEnrichment(p.placeId);
   const ownerSearch = getOwnerSearch(p.placeId);
+  const facebookSearch = getFacebookSearch(p.placeId);
   const scan = getSiteScan(p.placeId);
   const reach = getContactInfo(p.placeId);
   const lookingUp = placesInFlight().has(p.placeId);
@@ -216,30 +213,19 @@ export default async function PlaceDetailPage({
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardHeader><CardTitle>Facebook</CardTitle></CardHeader>
-                <CardContent className="space-y-1 text-sm">
-                  {fb?.state ? (
-                    <>
-                      <p>{FB_LABEL[fb.state]}</p>
-                      {fb.pageUrl && <a className="text-blue-600 hover:underline dark:text-blue-400" href={fb.pageUrl} target="_blank" rel="noopener noreferrer">{fb.pageUrl}</a>}
-                    </>
-                  ) : (
-                    <>
-                      {fb?.pageUrl && (
-                        <p>
-                          Page linked from their website:{" "}
-                          <a className="text-blue-600 hover:underline dark:text-blue-400" href={fb.pageUrl} target="_blank" rel="noopener noreferrer">{fb.pageUrl}</a>
-                        </p>
-                      )}
-                      <p className="text-muted-foreground">
-                        {fb?.pageUrl ? "Whether it runs ads is not checked yet." : "Not checked yet."} The Ad Library step comes in a later phase; until then the Facebook-ads fit is estimated from trade, reviews and site signals.
-                      </p>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
+              <FacebookCard
+                fb={fb ?? null}
+                search={facebookSearch}
+                country={(p.countryCode ?? "US").toUpperCase()}
+                action={<EnrichButton placeId={p.placeId} method="facebook" blockedReason={dnc ?? (fb?.pageUrl ? "Already has a Facebook page" : null)} done={facebookSearch != null} running={lookingUp} />}
+              />
             </div>
+
+            <RecentReviews
+              sample={p.reviewSample}
+              sampledAt={p.reviewsSampledAt}
+              action={<EnrichButton placeId={p.placeId} method="reviews" blockedReason={dnc} done={p.reviewSample != null} running={lookingUp} />}
+            />
 
             <div className="grid items-start gap-4 md:grid-cols-2">
               <Card>

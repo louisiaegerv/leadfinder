@@ -99,6 +99,10 @@ export async function duplicateNiche(id: number) {
         skipClosedPlaces: a.skipClosedPlaces,
         gl: a.gl,
         hl: a.hl,
+        reviews: a.reviews,
+        maxReviews: a.maxReviews,
+        searchOwners: a.searchOwners,
+        searchFacebook: a.searchFacebook,
       })
       .run();
   }
@@ -125,6 +129,10 @@ const areaInput = z
     skipClosedPlaces: z.boolean(),
     gl: z.string().length(2),
     hl: z.string().min(2).max(5),
+    reviews: z.boolean().default(false),
+    maxReviews: z.number().int().min(1).max(50).default(5),
+    searchOwners: z.boolean().default(false),
+    searchFacebook: z.boolean().default(false),
   })
   .transform((v) =>
     // Enforce "radius OR polygon, never both" by clearing the unused side.

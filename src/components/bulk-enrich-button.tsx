@@ -8,9 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { showScanResult } from "@/components/scan-toast";
+import { OFFER_LABEL, type OfferKey } from "@/lib/offers";
+import { STAGE_LABEL } from "@/lib/outreach";
 import { cn } from "@/lib/utils";
 
-type Method = "scan" | "search" | "site";
+type Method = "scan" | "search" | "facebook" | "reviews" | "site";
 
 type Preview = {
   matching: number;
@@ -23,7 +25,29 @@ type Preview = {
   maxPerClick: number;
   pricePerBusiness: number;
   fallbackPrice: number;
+  /** Reviews only: the price depends on how many reviews are asked for. */
+  baseCostPerBusiness?: number;
+  perReview?: number;
 };
+
+const REL_NAME: Record<string, string> = {
+  pipeline: "prospects (targets, adjacent and undecided)",
+  target: "targets only",
+  adjacent: "adjacent only",
+  gray: "undecided only",
+  noise: "noise only",
+  all: "everything, including noise",
+};
+
+/** The table's filters in words, so it is clear who an action will cover. */
+function describeFilters(f: Record<string, string>): string {
+  const parts = [REL_NAME[f.rel ?? "pipeline"] ?? REL_NAME.pipeline];
+  if (f.offer) parts.push(`lead offer: ${OFFER_LABEL[f.offer as OfferKey] ?? f.offer}`);
+  if (f.stage) parts.push(`stage: ${STAGE_LABEL[f.stage as keyof typeof STAGE_LABEL] ?? f.stage}`);
+  if (f.area) parts.push("one area");
+  if (f.q) parts.push(`name matches “${f.q}”`);
+  return parts.join(" · ");
+}
 
 const DEFAULT_COUNT = 25;
 const money = (n: number) => `$${n < 0.1 ? n.toFixed(3) : n.toFixed(2)}`;
@@ -31,6 +55,8 @@ const money = (n: number) => `$${n < 0.1 ? n.toFixed(3) : n.toFixed(2)}`;
 const METHODS: { key: Method; title: string; blurb: string }[] = [
   { key: "scan", title: "Quick scan", blurb: "Free. Reads each website directly: social links, emails, phone numbers, and signals like no mobile site or contact form." },
   { key: "search", title: "Search the web", blurb: "About a tenth of a cent each. Finds owner names, works without a website, and can find their LinkedIn." },
+  { key: "facebook", title: "Find Facebook page", blurb: "About a twentieth of a cent each. Googles the name, city and state plus “Facebook”, so you can check later whether the page runs ads. Works without a website." },
+  { key: "reviews", title: "Fetch reviews", blurb: "About $0.002 each for the 5 newest. Collects just these places' Google reviews, far cheaper than re-running the whole area. Dates each business's last review." },
   { key: "site", title: "Paid website reader", blurb: "About a cent and a half each. Also handles JavaScript-built sites: owner, emails, phones, services." },
 ];
 
@@ -44,6 +70,7 @@ export function BulkEnrichButton({ nicheId, running }: { nicheId: number; runnin
   const [fallback, setFallback] = useState(true);
   const [loaded, setLoaded] = useState<{ key: string; data: Preview } | null>(null);
   const [count, setCount] = useState(DEFAULT_COUNT);
+  const [maxReviews, setMaxReviews] = useState(5);
   const typedCount = useRef(false); // once you pick a number, switching method keeps it (within what is available)
 
   // The filters in the URL, minus paging, define who "the table" is.
@@ -78,8 +105,10 @@ export function BulkEnrichButton({ nicheId, running }: { nicheId: number; runnin
 
   const max = preview ? Math.min(preview.eligible, preview.maxPerClick) : 0;
   const n = Math.max(1, Math.min(count || 1, max || 1));
-  const cost = preview ? n * preview.pricePerBusiness : 0;
-  const worstExtra = method !== "site" && fallback && preview ? Math.min(n, preview.withWebsite) * preview.fallbackPrice : 0;
+  const perBusiness = preview ? (method === "reviews" && preview.baseCostPerBusiness != null ? preview.baseCostPerBusiness + maxReviews * (preview.perReview ?? 0) : preview.pricePerBusiness) : 0;
+  const cost = n * perBusiness;
+  const hasFallback = method === "scan" || method === "search";
+  const worstExtra = hasFallback && fallback && preview ? Math.min(n, preview.withWebsite) * preview.fallbackPrice : 0;
 
   async function run() {
     setBusy(true);
@@ -87,7 +116,7 @@ export function BulkEnrichButton({ nicheId, running }: { nicheId: number; runnin
       const res = await fetch("/api/enrich/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nicheId, filters, limit: n, method, fallback: method !== "site" && fallback }),
+        body: JSON.stringify({ nicheId, filters, limit: n, method, fallback: hasFallback && fallback, maxReviews }),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error ?? "Could not start the lookup");
@@ -113,11 +142,12 @@ export function BulkEnrichButton({ nicheId, running }: { nicheId: number; runnin
           <DialogHeader>
             <DialogTitle>Enrich these prospects?</DialogTitle>
             <DialogDescription>
-              Best scores first, from what the table is showing now. You are only charged for lookups that run, and a result never replaces a name you typed.
+              Covers everything your current filters match, across all pages and not just the rows you can see: <b className="text-foreground">{describeFilters(filters)}</b>
+              {preview ? ` (${preview.matching} businesses)` : ""}. Best scores first. You are only charged for lookups that run, and a result never replaces a name you typed.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className="grid gap-2 sm:grid-cols-2">
             {METHODS.map((m) => (
               <button
                 key={m.key}
@@ -164,7 +194,14 @@ export function BulkEnrichButton({ nicheId, running }: { nicheId: number; runnin
                 />
                 <span className="text-muted-foreground">of {max} (one click is capped at {preview.maxPerClick})</span>
               </label>
-              {method !== "site" && (
+              {method === "reviews" && (
+                <label className="flex items-center gap-2">
+                  Reviews per place
+                  <Input type="number" min={1} max={50} value={maxReviews} disabled={busy} onChange={(e) => setMaxReviews(Math.min(50, Math.max(1, Math.round(Number(e.target.value)) || 5)))} className="w-20" />
+                  <span className="text-muted-foreground">newest first; 5 is enough to date the last review</span>
+                </label>
+              )}
+              {hasFallback && (
                 <label className="flex items-start gap-2">
                   <input type="checkbox" checked={fallback} disabled={busy} onChange={(e) => setFallback(e.target.checked)} className="mt-0.5" />
                   <span>

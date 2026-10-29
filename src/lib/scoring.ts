@@ -1,6 +1,7 @@
 import type { FacebookState, OfferKey } from "./offers";
 import { OFFERS } from "./offers";
 import type { Playbook } from "./playbook";
+import { ageLabel, reviewStats, type ReviewSample, type ReviewStats } from "./reviews";
 import type { SiteSignals } from "./site-types";
 
 /**
@@ -30,6 +31,10 @@ export type ScoreInput = {
   facebookState: FacebookState | null;
   /** From a website scan, when one has been run. Absent means "not scanned", never "nothing found". */
   site?: SiteSignals | null;
+  /** A Facebook page we know of, from the business's website or a search. */
+  facebookPageUrl?: string | null;
+  /** The newest few reviews, when a run asked for them. Absent means "not sampled", never "no reviews". */
+  reviewSample?: ReviewSample[] | null;
 };
 
 export type OfferScore = { score: number; evidence: string[] };
@@ -195,14 +200,14 @@ const fmtTime = (min: number) => {
   return `${((h + 11) % 12) + 1}${mm ? `:${String(mm).padStart(2, "0")}` : ""} ${h < 12 ? "AM" : "PM"}`;
 };
 
-type Ctx = { p: ScoreInput; pb: Playbook; peers: Peers | null; site: WebsiteKind; hours: ReturnType<typeof hoursSignals> };
+type Ctx = { p: ScoreInput; pb: Playbook; peers: Peers | null; site: WebsiteKind; hours: ReturnType<typeof hoursSignals>; reviews: ReviewStats | null };
 
 /** A scan only says something about the page when it could actually read it (or proved the site is gone). */
 const readable = (p: ScoreInput) => p.site?.outcome === "ok";
 const DIY_BUILDERS = new Set(["wix", "godaddy", "weebly"]);
 const STALE_YEARS = 3;
 
-function reviewSystem({ p, pb, peers }: Ctx): RawOffer {
+function reviewSystem({ p, pb, peers, reviews: recent }: Ctx): RawOffer {
   const t = new Tally();
   const reviews = p.reviewsCount ?? 0;
   if (peers && peers.medianReviews >= 10 && p.reviewsCount != null) {
@@ -219,16 +224,29 @@ function reviewSystem({ p, pb, peers }: Ctx): RawOffer {
   }
   if (reviews >= 25) t.add(10, `${reviews} reviews means a real customer base to ask`);
   else if (reviews >= 10) t.add(5, `${reviews} reviews so far`);
+  if (recent) {
+    // How long since the last review is the clearest sign the reviews have stopped coming in.
+    const age = ageLabel(recent.newestDays);
+    if (recent.newestDays >= 180) t.add(22, `${INFER}Newest review is ${age} old: new reviews have dried up`);
+    else if (recent.newestDays >= 90) t.add(14, `${INFER}Newest review is ${age} old: reviews are slowing down`);
+    else if (recent.newestDays >= 45) t.add(5, `Newest review is ${age} old`);
+    else t.note(`Newest review is only ${age} old: already collecting reviews`);
+    if (recent.count >= 3) t.note(recent.replied === 0 ? `Has not replied to any of the last ${recent.count} reviews` : `Replied to ${recent.replied} of the last ${recent.count} reviews`);
+    if (recent.lowRecent > 0) t.note(`${recent.lowRecent} low-star review${recent.lowRecent === 1 ? "" : "s"} in the last 90 days`);
+  }
   if (pb.trade.ticketSize === "high") t.prior(5, "High-ticket trade: reviews drive trust");
   else if (pb.trade.ticketSize === "medium") t.prior(3, "Mid-ticket trade: reviews help close");
   return { score: t.score, evidence: t.evidence, prior: t.priorPoints };
 }
 
-function reactivation({ p, pb }: Ctx): RawOffer {
+function reactivation({ p, pb, reviews: recent }: Ctx): RawOffer {
   const t = new Tally();
   const n = p.reviewsCount ?? 0;
   const base = n >= 300 ? 50 : n >= 150 ? 40 : n >= 60 ? 30 : n >= 25 ? 18 : n >= 10 ? 8 : 0;
   if (base) t.add(base, `${INFER}${n} Google reviews suggests a large past-customer base (reviews are only a fraction of customers)`);
+  // A big base of past customers whose reviews have gone quiet is the classic reactivation target.
+  if (recent && n >= 40 && recent.newestDays >= 150)
+    t.add(10, `${INFER}Reviews have slowed (newest is ${ageLabel(recent.newestDays)} old) after ${n} in total: past customers are worth re-engaging`);
   if (pb.trade.ticketSize === "high") t.prior(15, "High-ticket trade: each reactivated customer is worth a lot");
   else if (pb.trade.ticketSize === "medium") t.prior(8, "Mid-ticket trade");
   if (pb.trade.salesCycle !== "days") t.prior(5, "Longer sales cycle: past quotes are worth revisiting");
@@ -274,8 +292,8 @@ function facebookAds({ p, pb, site }: Ctx): RawOffer {
   if (pb.trade.seasonality === "seasonal") t.prior(5, "Seasonal trade: ads can time demand");
   if (readable(p) && p.site) {
     if (p.site.fbPixel) t.add(6, `${INFER}Facebook Pixel on the site: they track Facebook traffic, and may have run ads`);
-    if (p.site.facebookUrl && !p.facebookState) t.add(3, "Links a Facebook page from its website, so it is active on the platform");
   }
+  if ((p.facebookPageUrl || p.site?.facebookUrl) && !p.facebookState) t.add(3, "Has a Facebook page, so it is active on the platform");
   switch (p.facebookState) {
     case "page_no_ads": t.add(35, "Has a Facebook page but no active ads"); break;
     case "active_ads": t.add(-15, "Already running Facebook ads"); break;
@@ -325,12 +343,13 @@ const LEAD_MIN = 30;
 const PRIOR_SHARE = 0.4;
 
 /** Bump when the scoring rules change; stored scores are recomputed once on the next page load. */
-export const SCORING_VERSION = 3;
+export const SCORING_VERSION = 5;
 
-export function scorePlace(p: ScoreInput, pb: Playbook, peers: Peers | null): ScoreResult {
+/** `now` matters: review recency ("4 months since the last review") changes as time passes. */
+export function scorePlace(p: ScoreInput, pb: Playbook, peers: Peers | null, now: Date = new Date()): ScoreResult {
   const site = websiteKind(p.domain, p.website);
   const hours = hoursSignals(p.openingHours);
-  const ctx: Ctx = { p, pb, peers, site, hours };
+  const ctx: Ctx = { p, pb, peers, site, hours, reviews: reviewStats(p.reviewSample, now) };
 
   const offers = {} as Record<OfferKey, OfferScore>;
   // What we rank by: evidence about THIS business counts in full, trade-profile points

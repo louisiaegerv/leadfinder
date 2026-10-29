@@ -10,19 +10,28 @@ import type { SiteSignals } from "./site-types";
  * Backfill scores when they are missing (rows that predate scoring) or were made
  * by older scoring rules. A cheap check, so it is safe to call on page loads.
  */
+// Scores depend on today's date (how long since the last review), so they are refreshed now and then.
+const REFRESH_AFTER_MS = 7 * 86_400_000;
+
 export function ensureScored(): void {
   const stored = db.select().from(settings).where(eq(settings.key, "scoringVersion")).get();
+  const scoredAt = db.select().from(settings).where(eq(settings.key, "scoredAt")).get();
+  const stale = !scoredAt || Date.now() - Number(scoredAt.value) > REFRESH_AFTER_MS;
   const unscored = db
     .select({ n: sql<number>`count(*)` })
     .from(nichePlaces)
     .where(isNull(nichePlaces.score))
     .get()!.n;
-  if (stored?.value === SCORING_VERSION && unscored === 0) return;
+  if (stored?.value === SCORING_VERSION && unscored === 0 && !stale) return;
 
   for (const n of db.select({ id: niches.id }).from(niches).all()) rescoreNiche(n.id);
   db.insert(settings)
     .values({ key: "scoringVersion", value: SCORING_VERSION })
     .onConflictDoUpdate({ target: settings.key, set: { value: SCORING_VERSION } })
+    .run();
+  db.insert(settings)
+    .values({ key: "scoredAt", value: Date.now() })
+    .onConflictDoUpdate({ target: settings.key, set: { value: Date.now() } })
     .run();
 }
 
@@ -89,7 +98,9 @@ export function rescoreNiche(nicheId: number): number {
       openingHours: places.openingHours,
       bookingLinks: places.bookingLinks,
       facebookState: facebookProfiles.state,
+      facebookPageUrl: facebookProfiles.pageUrl,
       siteScan: enrichment.data,
+      reviewSample: places.reviewSample,
     })
     .from(nichePlaces)
     .innerJoin(places, eq(places.placeId, nichePlaces.placeId))

@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { contacts, enrichment, facebookProfiles, nichePlaces, placeRuns, places, settings } from "@/db/schema";
 import { enrichableUrl } from "./enrich";
+import { facebookPage } from "./facebook-search";
 import { getEnrichment, resolveTargets, saveOwner, startEnrichment } from "./enrich-db";
 import { nicheFilterWhere, type PlaceFilters } from "./queries";
 import { rescoreNiche } from "./rescore";
@@ -95,10 +96,10 @@ function save(placeId: string, scan: SiteScan): { facebook: boolean; owner: bool
     if (fb) {
       const existing = tx.select().from(facebookProfiles).where(eq(facebookProfiles.placeId, placeId)).get();
       if (!existing) {
-        tx.insert(facebookProfiles).values({ placeId, pageUrl: fb, matchSource: "maps_website", matchConfidence: 0.8, userOverride: false }).run();
+        tx.insert(facebookProfiles).values({ placeId, pageUrl: fb, pageId: facebookPage(fb)?.pageId ?? null, matchSource: "maps_website", matchConfidence: 0.8, userOverride: false }).run();
         facebook = true;
       } else if (!existing.userOverride && existing.matchSource !== "user" && existing.pageUrl !== fb) {
-        tx.update(facebookProfiles).set({ pageUrl: fb, matchSource: "maps_website", matchConfidence: 0.8 }).where(eq(facebookProfiles.placeId, placeId)).run();
+        tx.update(facebookProfiles).set({ pageUrl: fb, pageId: facebookPage(fb)?.pageId ?? null, matchSource: "maps_website", matchConfidence: 0.8 }).where(eq(facebookProfiles.placeId, placeId)).run();
         facebook = true;
       }
     }

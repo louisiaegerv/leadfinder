@@ -32,7 +32,15 @@ export function EnrichPoller({ runIds }: { runIds: number[] }) {
           if (d.status === "ingested") {
             const cost = d.costUsd ? `, $${Number(d.costUsd).toFixed(3)}` : "";
             const owners = `${d.owners} owner name${d.owners === 1 ? "" : "s"} found`;
-            if (d.kind === "search") {
+            if (d.kind === "reviews") {
+              toast.success(`Fetched reviews for ${d.found} of ${d.requested} ${d.requested === 1 ? "place" : "places"}`, {
+                description: `Scores updated${cost}.${d.found < d.requested ? ` ${d.requested - d.found} came back without review data.` : ""}`,
+              });
+            } else if (d.kind === "facebook") {
+              toast.success(`Searched ${d.requested} ${d.requested === 1 ? "business" : "businesses"} for a Facebook page`, {
+                description: `${d.found} page${d.found === 1 ? "" : "s"} found${cost}.`,
+              });
+            } else if (d.kind === "search") {
               toast.success(`Searched ${d.requested} ${d.requested === 1 ? "business" : "businesses"}`, {
                 description: `${owners}${cost}.${d.fallbackStarted ? ` Reading ${d.fallbackStarted} website${d.fallbackStarted === 1 ? "" : "s"} for the rest.` : ""}`,
               });

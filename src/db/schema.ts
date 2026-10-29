@@ -8,6 +8,7 @@ import {
 } from "drizzle-orm/sqlite-core";
 import type { Playbook } from "@/lib/playbook";
 import type { OfferKey } from "@/lib/offers";
+import type { ReviewSample } from "@/lib/reviews";
 
 const ts = (name: string) => integer(name, { mode: "timestamp_ms" });
 const now = () => new Date();
@@ -44,6 +45,9 @@ export const places = sqliteTable(
     photosCount: integer("photos_count"),
     openingHours: text("opening_hours", { mode: "json" }).$type<Record<string, string>>(),
     bookingLinks: text("booking_links", { mode: "json" }).$type<string[]>(),
+    /** The newest few reviews, only when a run asked for them (null means never asked). See lib/reviews.ts. */
+    reviewSample: text("review_sample", { mode: "json" }).$type<ReviewSample[]>(),
+    reviewsSampledAt: ts("reviews_sampled_at"),
     scrapedAt: ts("scraped_at").notNull(),
     firstSeenAt: ts("first_seen_at").notNull().$defaultFn(now),
   },
@@ -79,6 +83,12 @@ export const areas = sqliteTable("areas", {
   skipClosedPlaces: integer("skip_closed_places", { mode: "boolean" }).notNull().default(true),
   gl: text("gl").notNull().default("us"),
   hl: text("hl").notNull().default("en"),
+  // Ask the actor for the newest reviews of each place ($0.25 per 1,000 reviews returned).
+  reviews: integer("reviews", { mode: "boolean" }).notNull().default(false),
+  maxReviews: integer("max_reviews").notNull().default(5),
+  // Paid searches to run on the places a run finds, once it is ingested. Off unless chosen.
+  searchOwners: integer("search_owners", { mode: "boolean" }).notNull().default(false),
+  searchFacebook: integer("search_facebook", { mode: "boolean" }).notNull().default(false),
   createdAt: ts("created_at").notNull().$defaultFn(now),
 });
 
@@ -201,7 +211,7 @@ export const enrichmentRuns = sqliteTable("enrichment_runs", {
   apifyRunId: text("apify_run_id"),
   datasetId: text("dataset_id"),
   /** "site" reads each business's website; "search" googles for the owner and has a model read the snippets. */
-  kind: text("kind", { enum: ["site", "search"] }).notNull().default("site"),
+  kind: text("kind", { enum: ["site", "search", "facebook", "reviews"] }).notNull().default("site"),
   /** "ingesting" is held while results are applied, so two pollers never do the work (and the model spend) twice. */
   status: text("status", { enum: ["running", "ingesting", "ingested", "failed", "aborted"] })
     .notNull()
@@ -241,6 +251,8 @@ export const facebookProfiles = sqliteTable("facebook_profiles", {
   pageUrl: text("page_url"),
   matchSource: text("match_source", { enum: ["maps_website", "search", "user"] }),
   matchConfidence: real("match_confidence"),
+  /** The page's numeric id, when it can be read from the url (needed to look the page up in the Meta Ad Library). */
+  pageId: text("page_id"),
   userOverride: integer("user_override", { mode: "boolean" }).notNull().default(false),
   state: text("state", {
     enum: ["no_page", "page_no_ads", "active_ads", "active_ads_weak_landing"],

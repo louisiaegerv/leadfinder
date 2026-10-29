@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Globe, Loader2, ScanSearch, UserSearch } from "lucide-react";
+import { Globe, Loader2, Megaphone, ScanSearch, Star, UserSearch } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ENRICH_PRICE_USD } from "@/lib/enrich";
 import { showScanResult } from "@/components/scan-toast";
@@ -23,7 +23,7 @@ export function EnrichButton({
   running,
 }: {
   placeId: string;
-  method?: "scan" | "search" | "site";
+  method?: "scan" | "search" | "facebook" | "reviews" | "site";
   fallback?: boolean;
   /** Why this can't be run for this business (do-not-contact, no website), or null when it can. */
   blockedReason: string | null;
@@ -40,12 +40,12 @@ export function EnrichButton({
       const res = await fetch("/api/enrich/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ placeIds: [placeId], method, fallback: method !== "site" && fallback }),
+        body: JSON.stringify({ placeIds: [placeId], method, fallback: (method === "scan" || method === "search") && fallback }),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error ?? "Could not start the lookup");
       if (method === "scan") showScanResult(d);
-      else toast.info(method === "search" ? "Searching…" : "Reading the website…", { description: "This usually takes under a minute. You can keep working." });
+      else toast.info(method === "search" ? "Searching…" : method === "facebook" ? "Looking for the Facebook page…" : method === "reviews" ? "Fetching reviews…" : "Reading the website…", { description: "This usually takes under a minute. You can keep working." });
       router.refresh(); // shows the result, and hands any new run to the background poller
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not start the lookup");
@@ -56,14 +56,18 @@ export function EnrichButton({
 
   const working = busy || running;
   const tip =
-    method === "scan"
+    method === "reviews"
+      ? "Fetches the newest 5 Google reviews of just this business (about $0.002)."
+      : method === "facebook"
+      ? "Googles the business's name, city and state plus “Facebook” to find its page (about $0.0005)."
+      : method === "scan"
       ? "Reads the website directly (free): social links, emails, phone numbers, and signals like no mobile site or no contact form."
       : method === "search"
       ? `Searches Google for the owner (about $0.001)${fallback ? `. If that finds nobody, reads the website too (about $${ENRICH_PRICE_USD}).` : "."}`
       : `Reads the business's website for the owner, emails and phone numbers (about $${ENRICH_PRICE_USD}).`;
-  const Icon = method === "scan" ? ScanSearch : method === "search" ? UserSearch : Globe;
+  const Icon = method === "scan" ? ScanSearch : method === "search" ? UserSearch : method === "facebook" ? Megaphone : method === "reviews" ? Star : Globe;
   const label =
-    method === "scan" ? (done ? "Scan again" : "Scan website") : method === "search" ? (done ? "Search again" : "Find owner") : done ? "Re-read website" : "Paid website reader";
+    method === "reviews" ? (done ? "Refresh reviews" : "Fetch reviews") : method === "facebook" ? (done ? "Search again" : "Find Facebook page") : method === "scan" ? (done ? "Scan again" : "Scan website") : method === "search" ? (done ? "Search again" : "Find owner") : done ? "Re-read website" : "Paid website reader";
 
   return (
     <Button variant="outline" size="sm" onClick={start} disabled={working || blockedReason != null} title={blockedReason ?? tip} className="h-[30px]">

@@ -12,6 +12,7 @@ import {
   SEARCH_CHUNK,
   buildOwnerMessage,
   buildQueries,
+  SEARCH_PAGE_USD,
   estimateSearchCostUsd,
   extractionSchema,
   searchCapUsd,
@@ -26,8 +27,8 @@ import { nicheFilterWhere, type PlaceFilters } from "./queries";
 
 const KIND = "owner_search";
 
-type PlaceRow = SearchPlace & { placeId: string; countryCode: string | null };
-type RunRow = typeof enrichmentRuns.$inferSelect;
+export type PlaceRow = SearchPlace & { placeId: string; countryCode: string | null };
+export type RunRow = typeof enrichmentRuns.$inferSelect;
 
 export type OwnerSearchRecord = {
   finding: OwnerFinding | null;
@@ -35,7 +36,7 @@ export type OwnerSearchRecord = {
   queries: string[];
 };
 
-function loadPlaces(placeIds: string[]): PlaceRow[] {
+export function loadPlaces(placeIds: string[]): PlaceRow[] {
   if (placeIds.length === 0) return [];
   return db
     .select({
@@ -127,8 +128,13 @@ export function resolveSearchTargets(placeIds: string[]): { placeIds: string[]; 
 
 // ---------- starting ----------
 
-/** One Apify run per batch of businesses (and per country), each with its own spend cap. */
-export async function startOwnerSearch(placeIds: string[], opts: { fallback: boolean }) {
+export type SearchKind = "search" | "facebook";
+
+/**
+ * One Apify search run per batch of businesses (and per country), each with its own spend cap.
+ * `kind` says what the results are for: an owner name, or a Facebook page.
+ */
+export async function startSearchRuns(placeIds: string[], kind: SearchKind, queriesFor: (p: PlaceRow) => string[], opts: { fallback: boolean }) {
   const rows = loadPlaces(placeIds).slice(0, MAX_SEARCH_PER_CLICK);
   if (rows.length === 0) throw new Error("Nothing to search");
   const cap = RUN_COST_CAP_USD();
@@ -147,7 +153,7 @@ export async function startOwnerSearch(placeIds: string[], opts: { fallback: boo
     for (let i = 0; i < list.length; i += SEARCH_CHUNK) {
       const chunk = list.slice(i, i + SEARCH_CHUNK);
       const queries: Record<string, string[]> = {};
-      for (const p of chunk) queries[p.placeId] = buildQueries(p);
+      for (const p of chunk) queries[p.placeId] = queriesFor(p);
       const all = [...new Set(Object.values(queries).flat())];
       try {
         const run = await startRun(
@@ -159,7 +165,7 @@ export async function startOwnerSearch(placeIds: string[], opts: { fallback: boo
         const row = db
           .insert(enrichmentRuns)
           .values({
-            kind: "search",
+            kind,
             apifyRunId: run.id,
             datasetId: run.defaultDatasetId,
             targets: chunk.map((p) => ({ placeId: p.placeId, url: p.website ?? "" })),
@@ -176,8 +182,12 @@ export async function startOwnerSearch(placeIds: string[], opts: { fallback: boo
     }
   }
   if (runIds.length === 0) throw lastError ?? new Error("Could not start the search");
-  return { runIds, count: started, estimatedUsd: estimateSearchCostUsd(queryTotal, started), trimmed: placeIds.length > rows.length };
+  // Owner searches also pay for the model reading the results; Facebook matching is plain code.
+  const estimatedUsd = kind === "search" ? estimateSearchCostUsd(queryTotal, started) : queryTotal * SEARCH_PAGE_USD;
+  return { runIds, count: started, estimatedUsd, trimmed: placeIds.length > rows.length };
 }
+
+export const startOwnerSearch = (placeIds: string[], opts: { fallback: boolean }) => startSearchRuns(placeIds, "search", buildQueries, opts);
 
 // ---------- reading the results ----------
 
@@ -281,7 +291,18 @@ function fallbackTargets(placeIds: string[]) {
 }
 
 /** Poll a search run; once it succeeds, read the results with the model and save the owners. Safe to call repeatedly. */
-export async function syncSearch(id: number): Promise<{ run: RunRow; fallbackStarted: number } | null> {
+/** What a finished search run produced, whichever kind it was. `found` is owner names, or Facebook pages. */
+export type IngestSummary = { searched: number; found: number; llmCostUsd: number; notFound: string[] };
+export type SearchIngest = (run: RunRow, rows: Record<string, unknown>[]) => Promise<IngestSummary>;
+
+const ingestOwners: SearchIngest = async (run, rows) => {
+  const r = await ingestSearchRun(run, rows);
+  return { searched: r.searched, found: r.owners, llmCostUsd: r.llmCostUsd, notFound: r.notFound };
+};
+
+export const syncSearch = (id: number) => syncSearchRun(id, ingestOwners);
+
+export async function syncSearchRun(id: number, ingest: SearchIngest): Promise<{ run: RunRow; fallbackStarted: number } | null> {
   const get = () => db.select().from(enrichmentRuns).where(eq(enrichmentRuns.id, id)).get();
   const run = get();
   if (!run) return null;
@@ -315,16 +336,16 @@ export async function syncSearch(id: number): Promise<{ run: RunRow; fallbackSta
     throw e;
   }
 
-  let result: Awaited<ReturnType<typeof ingestSearchRun>>;
+  let result: IngestSummary;
   try {
-    result = await ingestSearchRun(run, items);
+    result = await ingest(run, items);
   } catch (e) {
     return { run: finish({ status: "failed", error: e instanceof Error ? e.message : String(e) }), fallbackStarted: 0 };
   }
   const finished = finish({
     status: "ingested",
     enrichedCount: result.searched,
-    ownerCount: result.owners,
+    ownerCount: result.found,
     costUsd: (remote.usageTotalUsd ?? 0) + result.llmCostUsd,
     error: null,
   });
