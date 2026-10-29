@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, isNull, like, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import { areas, contacts, facebookProfiles, nichePlaces, niches, placeRuns, places, runs } from "@/db/schema";
-import { OFFERS, type OfferKey } from "./offers";
+import { OFFERS, STAGES, type OfferKey, type Stage } from "./offers";
 
 export function listNiches() {
   return db
@@ -99,6 +99,7 @@ export const PAGE_SIZE = 50;
 
 export type PlaceFilters = {
   rel: RelFilter;
+  stage?: Stage;
   areaId?: number;
   offer?: OfferKey;
   q?: string;
@@ -115,11 +116,13 @@ export function parseFilters(sp: RawParams): PlaceFilters {
   const rel = one(sp.rel) as RelFilter;
   const sort = one(sp.sort) as SortKey;
   const offer = one(sp.offer) as OfferKey;
+  const stage = one(sp.stage) as Stage;
   const areaId = Number(one(sp.area));
   return {
     rel: REL_FILTERS.includes(rel) ? rel : "pipeline",
     areaId: Number.isInteger(areaId) && areaId > 0 ? areaId : undefined,
     offer: OFFERS.includes(offer) ? offer : undefined,
+    stage: STAGES.includes(stage) ? stage : undefined,
     q: one(sp.q)?.trim() || undefined,
     sort: SORT_KEYS.includes(sort) ? sort : "score",
     dir: one(sp.dir) === "asc" ? "asc" : "desc",
@@ -134,6 +137,7 @@ function where(nicheId: number, f: PlaceFilters): SQL {
   else if (f.rel !== "all") conds.push(eq(nichePlaces.relevance, f.rel));
   if (f.areaId) conds.push(eq(nichePlaces.areaId, f.areaId));
   if (f.offer) conds.push(eq(nichePlaces.leadOffer, f.offer));
+  if (f.stage) conds.push(eq(nichePlaces.stage, f.stage));
   if (f.q) conds.push(like(places.title, `%${f.q.replace(/[%_]/g, "")}%`));
   return and(...conds)!;
 }

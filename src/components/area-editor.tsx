@@ -283,7 +283,7 @@ export default function AreaEditor({ nicheId, area, reusableQueries, defaultQuer
               {plan} plan: ${RATE_PER_1000[plan].toFixed(2)} per 1,000 results. Max assumes every query returns {num} results.
             </p>
             {points.length > 400 && (
-              <p className="mt-2 text-xs text-amber-600">That is a lot of grid points. Consider wider spacing or splitting into areas.</p>
+              <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">That is a lot of grid points. Consider wider spacing or splitting into areas.</p>
             )}
           </CardContent>
         </Card>

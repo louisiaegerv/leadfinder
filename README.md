@@ -10,7 +10,8 @@ It runs on your own machine, with your own Apify and OpenRouter keys. There is n
 2. **Draw areas.** Mark a service area on a map as a radius or a polygon. The app lays out the search grid and shows the number of search points, the estimated run time and the estimated cost before anything is spent.
 3. **Launch a run.** After you confirm the estimate, a Google Maps scrape starts on Apify with a hard per-run cost cap. Results are fetched, normalized and deduplicated into one local database.
 4. **Review prospects.** A sortable, filterable table (and a map) of everything found, each with a score, a lead offer and a runner-up. Open a business to see exactly why it scored the way it did.
-5. **Decide the gray zone.** Rules sort most businesses into target or noise. The ones they can't decide can be reviewed in a batch by an LLM through OpenRouter. You can always override a result by hand, and your choice wins.
+5. **Work the list.** Log each call from a business's page: what happened, what you pitched, the objection you heard, and when to follow up. The stage (not contacted, dialed, in conversation, meeting booked, and so on) moves on its own. The Outreach page lists follow-ups that are due, and a pitch brief on each business gives you an opener, the evidence, and answers to likely objections.
+6. **Decide the gray zone.** Rules sort most businesses into target or noise. The ones they can't decide can be reviewed in a batch by an LLM through OpenRouter. You can always override a result by hand, and your choice wins.
 
 Places are shared across niches, so a business scraped for one niche is not scraped or paid for twice. Relevance and score are kept per niche, while contact history and do-not-contact are kept per business.
 
@@ -48,11 +49,11 @@ Built:
 - Business photos from the scraped data
 - Relevance rules plus the LLM gray-zone review
 - Offer-fit scoring, the prospects table, map and detail pages
+- Outreach tracker: pipeline stages, a call log shared across niches, follow-up dates, an Outreach page with due follow-ups and an objection tally, and a pitch brief per business
 
 Not built yet:
 
 - **Coverage panel and AI keyword discovery:** cost per new on-target place, saturation, probe runs
-- **Outreach tracker:** stages, call log, follow-ups, pitch brief
 - **Enrichment and Facebook checks:** owner details, Facebook page match, Ad Library, territory guard. The scoring already accepts a Facebook state, but nothing fills it in yet.
 
 ## Setup

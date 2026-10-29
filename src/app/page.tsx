@@ -9,8 +9,17 @@ export default function Home() {
   const all = listNiches();
   return (
     <FadeIn className="mx-auto max-w-5xl">
-      <h1 className="text-2xl font-semibold">Niches</h1>
-      <p className="mt-1 text-sm text-muted-foreground">Each niche has its own playbook, areas, runs and pipeline. Places and contact history are shared.</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold">Niches</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Each niche has its own playbook, areas, runs and pipeline. Places and contact history are shared.</p>
+        </div>
+        {all.length > 0 && (
+          <Link href="/niches/new" className="inline-flex shrink-0 items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-muted">
+            <Plus className="size-4" /> New niche
+          </Link>
+        )}
+      </div>
 
       {all.length === 0 ? (
         <Card className="mt-6">

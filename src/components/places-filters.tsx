@@ -5,7 +5,8 @@ import { useState } from "react";
 import { Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { OFFER_LABEL, OFFERS } from "@/lib/offers";
+import { OFFER_LABEL, OFFERS, STAGES } from "@/lib/offers";
+import { STAGE_LABEL } from "@/lib/outreach";
 
 const selectCls =
   "h-9 rounded-lg border bg-background px-2.5 text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50";
@@ -42,7 +43,7 @@ export function PlacesFilters({
     router.replace(qs ? `${basePath}?${qs}` : basePath);
   }
 
-  const active = ["rel", "area", "offer", "q"].some((k) => sp.get(k));
+  const active = ["rel", "area", "offer", "stage", "q"].some((k) => sp.get(k));
 
   return (
     <form
@@ -65,6 +66,12 @@ export function PlacesFilters({
         <option value="">Any lead offer</option>
         {OFFERS.map((o) => (
           <option key={o} value={o}>{OFFER_LABEL[o]}</option>
+        ))}
+      </select>
+      <select className={selectCls} value={sp.get("stage") ?? ""} onChange={(e) => go({ stage: e.target.value || null })} aria-label="Stage">
+        <option value="">Any stage</option>
+        {STAGES.map((s) => (
+          <option key={s} value={s}>{STAGE_LABEL[s]}</option>
         ))}
       </select>
       {areas.length > 1 && (

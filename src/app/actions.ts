@@ -9,6 +9,9 @@ import { reclassifyNiche, rescoreNiche } from "@/lib/rescore";
 import { areaShape } from "@/lib/areas";
 import { clonePlaybook } from "@/lib/presets";
 import { playbookSchema } from "@/lib/playbook";
+import { OFFERS, STAGES } from "@/lib/offers";
+import { OUTCOMES, parseFollowUp } from "@/lib/outreach";
+import { clearFollowUp, deleteLogEntry, recordCall } from "@/lib/outreach-db";
 
 const nicheInput = z.object({
   name: z.string().trim().min(1, "Give the niche a name"),
@@ -152,4 +155,44 @@ export async function saveArea(nicheId: number, areaId: number | null, input: z.
 export async function deleteArea(nicheId: number, areaId: number) {
   db.delete(areas).where(eq(areas.id, areaId)).run();
   revalidatePath(`/niches/${nicheId}`);
+}
+
+// ---------- outreach ----------
+
+const callInput = z.object({
+  nicheId: z.number().int().positive(),
+  placeId: z.string().min(1),
+  outcome: z.enum(OUTCOMES),
+  notes: z.string().max(2000).nullish(),
+  objection: z.string().max(200).nullish(),
+  offer: z.enum(OFFERS).nullish(),
+  followUp: z.string().nullish(), // YYYY-MM-DD from a date input
+});
+
+/** Log a call; the stage moves on its own (see stageAfter) and do-not-contact is set when asked. */
+export async function logCall(input: z.input<typeof callInput>) {
+  const v = callInput.parse(input);
+  const result = recordCall({ ...v, followUp: parseFollowUp(v.followUp) });
+  revalidatePath("/", "layout");
+  return result;
+}
+
+/** Manual override, for moves a call can't express (meeting held, proposal sent, won). */
+export async function setStage(nicheId: number, placeId: string, stage: (typeof STAGES)[number]) {
+  const next = z.enum(STAGES).parse(stage);
+  db.update(nichePlaces)
+    .set({ stage: next })
+    .where(and(eq(nichePlaces.nicheId, nicheId), eq(nichePlaces.placeId, placeId)))
+    .run();
+  revalidatePath("/", "layout");
+}
+
+export async function dismissFollowUp(logId: number) {
+  clearFollowUp(logId);
+  revalidatePath("/", "layout");
+}
+
+export async function deleteCallEntry(logId: number) {
+  deleteLogEntry(logId);
+  revalidatePath("/", "layout");
 }

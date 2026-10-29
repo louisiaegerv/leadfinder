@@ -191,7 +191,7 @@ export default function NicheForm({ mode, nicheId, initial }: { mode: "create" |
       <aside className="lg:sticky lg:top-6 lg:self-start">
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Sparkles className="size-4 text-blue-600" /> Free preview</CardTitle>
+            <CardTitle className="flex items-center gap-2"><Sparkles className="size-4 text-blue-600 dark:text-blue-400" /> Free preview</CardTitle>
             <CardDescription>Already-scraped places that match this definition. No new run needed.</CardDescription>
           </CardHeader>
           <CardContent className="text-sm">

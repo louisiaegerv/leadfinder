@@ -3,16 +3,23 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ExternalLink, MapPin, Phone, Star } from "lucide-react";
 import { AnimatedBar } from "@/components/animated-bar";
+import { CallLogPanel } from "@/components/call-log-panel";
+import { DetailTabs } from "@/components/detail-tabs";
 import { FadeIn } from "@/components/fade-in";
+import { PitchBrief } from "@/components/pitch-brief";
 import { PlaceControls } from "@/components/place-controls";
 import { PlaceThumb } from "@/components/place-thumb";
 import { OfferChip, ScoreBadge } from "@/components/score-bits";
 import { CapacityTip, FitGateTip, GapsTip, ReachabilityTip } from "@/components/score-help";
+import { StageSelect } from "@/components/stage-select";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { parseTab } from "@/lib/detail-tab";
 import { isStreetView } from "@/lib/images";
 import { OFFER_LABEL, OFFERS, type OfferKey } from "@/lib/offers";
 import { OFFER_STYLE } from "@/lib/offer-ui";
+import { getCallLog } from "@/lib/outreach-db";
+import { buildBrief } from "@/lib/pitch";
 import { getNiche, getPlaceDetail } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
@@ -31,8 +38,15 @@ function decode(id: string) {
   }
 }
 
-export default async function PlaceDetailPage({ params }: { params: Promise<{ id: string; placeId: string }> }) {
+export default async function PlaceDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string; placeId: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { id, placeId: raw } = await params;
+  const sp = await searchParams;
   const niche = getNiche(Number(id));
   if (!niche) notFound();
   ensureScored();
@@ -42,6 +56,22 @@ export default async function PlaceDetailPage({ params }: { params: Promise<{ id
 
   const offers = OFFERS.map((o) => ({ key: o, ...(np.offerScores?.[o] ?? { score: 0, evidence: [] as string[] }) })).sort((a, b) => b.score - a.score);
   const bd = np.scoreBreakdown;
+
+  const log = getCallLog(p.placeId).map((e) => ({
+    ...e,
+    followUp: e.followUp?.getTime() ?? null,
+    createdAt: e.createdAt.getTime(),
+  }));
+  const brief = np.leadOffer
+    ? buildBrief({
+        offer: np.leadOffer,
+        runnerUp: np.runnerUpOffer,
+        title: p.title,
+        reviews: p.reviewsCount,
+        rating: p.totalScore,
+        evidence: np.offerScores?.[np.leadOffer]?.evidence ?? [],
+      })
+    : null;
 
   return (
     <FadeIn className="mx-auto max-w-5xl space-y-6">
@@ -53,6 +83,7 @@ export default async function PlaceDetailPage({ params }: { params: Promise<{ id
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-semibold">{p.title}</h1>
             <ScoreBadge score={np.score} />
+            <StageSelect nicheId={niche.id} placeId={p.placeId} stage={np.stage} />
             {contact?.doNotContact && <Badge variant="destructive">Do not contact</Badge>}
           </div>
           <div className="flex flex-wrap gap-1.5">
@@ -73,107 +104,125 @@ export default async function PlaceDetailPage({ params }: { params: Promise<{ id
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Why this score</CardTitle>
-            <CardDescription>Fit gate × (capacity + gaps + reachability)</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            {bd ? (
-              <>
-                <Part label="Fit gate" value={`×${bd.fit}`} tip={<FitGateTip />} />
-                <Bar label="Capacity" value={bd.capacity} max={40} tip={<CapacityTip />} delay={0} />
-                <Bar label="Gaps" value={bd.gaps} max={35} tip={<GapsTip />} delay={0.1} />
-                <Bar label="Reachability" value={bd.reachability} max={25} tip={<ReachabilityTip />} delay={0.2} />
-                {bd.notes.map((n) => <p key={n} className="text-xs text-amber-700 dark:text-amber-400">{n}</p>)}
-              </>
-            ) : (
-              <p className="text-muted-foreground">Not scored yet.</p>
-            )}
-          </CardContent>
-        </Card>
+      <DetailTabs
+        initial={parseTab(sp.tab)}
+        callCount={log.length}
+        outreach={
+          <div className="grid items-start gap-4 lg:grid-cols-2">
+            <CallLogPanel nicheId={niche.id} placeId={p.placeId} defaultOffer={np.leadOffer} entries={log} />
+            <PitchBrief brief={brief} title={p.title} />
+          </div>
+        }
+        score={
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Why this score</CardTitle>
+                <CardDescription>Fit gate × (capacity + gaps + reachability)</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4 text-sm">
+                {bd ? (
+                  <>
+                    <div className="max-w-xs"><Part label="Fit gate" value={`×${bd.fit}`} tip={<FitGateTip />} /></div>
+                    <div className="grid gap-x-8 gap-y-3 sm:grid-cols-3">
+                      <Bar label="Capacity" value={bd.capacity} max={40} tip={<CapacityTip />} delay={0} />
+                      <Bar label="Gaps" value={bd.gaps} max={35} tip={<GapsTip />} delay={0.1} />
+                      <Bar label="Reachability" value={bd.reachability} max={25} tip={<ReachabilityTip />} delay={0.2} />
+                    </div>
+                    {bd.notes.map((n) => <p key={n} className="text-xs text-amber-700 dark:text-amber-400">{n}</p>)}
+                  </>
+                ) : (
+                  <p className="text-muted-foreground">Not scored yet.</p>
+                )}
+              </CardContent>
+            </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Your call</CardTitle>
-            <CardDescription>Overrides apply to this niche only, except do-not-contact.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <PlaceControls
-              nicheId={niche.id}
-              placeId={p.placeId}
-              relevance={np.relevance}
-              source={np.relevanceSource}
-              reason={np.relevanceReason}
-              doNotContact={contact?.doNotContact ?? false}
-            />
-          </CardContent>
-        </Card>
-      </div>
+            <section className="space-y-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <h2 className="text-lg font-semibold">Offer fit</h2>
+                <span className="text-sm text-muted-foreground">Lead with</span>
+                <OfferChip offer={np.leadOffer} />
+                {np.runnerUpOffer && (<><span className="text-sm text-muted-foreground">then</span><OfferChip offer={np.runnerUpOffer} muted /></>)}
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                {offers.map((o) => <OfferCard key={o.key} offer={o.key} score={o.score} evidence={o.evidence} lead={np.leadOffer === o.key} />)}
+              </div>
+            </section>
+          </div>
+        }
+        details={
+          <div className="space-y-4">
+            <div className="grid items-start gap-4 md:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Your call</CardTitle>
+                  <CardDescription>Overrides apply to this niche only, except do-not-contact.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <PlaceControls
+                    nicheId={niche.id}
+                    placeId={p.placeId}
+                    relevance={np.relevance}
+                    source={np.relevanceSource}
+                    reason={np.relevanceReason}
+                    doNotContact={contact?.doNotContact ?? false}
+                  />
+                </CardContent>
+              </Card>
 
-      <section className="space-y-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <h2 className="text-lg font-semibold">Offer fit</h2>
-          <span className="text-sm text-muted-foreground">Lead with</span>
-          <OfferChip offer={np.leadOffer} />
-          {np.runnerUpOffer && (<><span className="text-sm text-muted-foreground">then</span><OfferChip offer={np.runnerUpOffer} muted /></>)}
-        </div>
-        <div className="grid gap-3 md:grid-cols-2">
-          {offers.map((o) => <OfferCard key={o.key} offer={o.key} score={o.score} evidence={o.evidence} lead={np.leadOffer === o.key} />)}
-        </div>
-      </section>
+              <Card>
+                <CardHeader><CardTitle>Facebook</CardTitle></CardHeader>
+                <CardContent className="space-y-1 text-sm">
+                  {fb?.state ? (
+                    <>
+                      <p>{FB_LABEL[fb.state]}</p>
+                      {fb.pageUrl && <a className="text-blue-600 hover:underline dark:text-blue-400" href={fb.pageUrl} target="_blank" rel="noopener noreferrer">{fb.pageUrl}</a>}
+                    </>
+                  ) : (
+                    <p className="text-muted-foreground">Not checked yet. The Facebook page match and Ad Library steps come in a later phase; until then the Facebook-ads fit is estimated from trade and reviews only.</p>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader><CardTitle>Facebook</CardTitle></CardHeader>
-          <CardContent className="space-y-1 text-sm">
-            {fb?.state ? (
-              <>
-                <p>{FB_LABEL[fb.state]}</p>
-                {fb.pageUrl && <a className="text-blue-600 hover:underline" href={fb.pageUrl} target="_blank" rel="noopener noreferrer">{fb.pageUrl}</a>}
-              </>
-            ) : (
-              <p className="text-muted-foreground">Not checked yet. The Facebook page match and Ad Library steps come in a later phase; until then the Facebook-ads fit is estimated from trade and reviews only.</p>
-            )}
-          </CardContent>
-        </Card>
+            <div className="grid items-start gap-4 md:grid-cols-2">
+              <Card>
+                <CardHeader><CardTitle>Hours</CardTitle></CardHeader>
+                <CardContent className="text-sm">
+                  {p.openingHours && Object.keys(p.openingHours).length ? (
+                    <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5">
+                      {Object.entries(p.openingHours).map(([day, h]) => (<div key={day} className="contents"><dt className="text-muted-foreground">{day}</dt><dd>{h}</dd></div>))}
+                    </dl>
+                  ) : <p className="text-muted-foreground">No hours listed on Google.</p>}
+                  <p className="mt-2 text-xs text-muted-foreground">{p.bookingLinks?.length ? `${p.bookingLinks.length} booking link(s) on the listing.` : "No booking link on the listing."}</p>
+                </CardContent>
+              </Card>
 
-        <Card>
-          <CardHeader><CardTitle>Hours</CardTitle></CardHeader>
-          <CardContent className="text-sm">
-            {p.openingHours && Object.keys(p.openingHours).length ? (
-              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5">
-                {Object.entries(p.openingHours).map(([day, h]) => (<div key={day} className="contents"><dt className="text-muted-foreground">{day}</dt><dd>{h}</dd></div>))}
-              </dl>
-            ) : <p className="text-muted-foreground">No hours listed on Google.</p>}
-            <p className="mt-2 text-xs text-muted-foreground">{p.bookingLinks?.length ? `${p.bookingLinks.length} booking link(s) on the listing.` : "No booking link on the listing."}</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Where it came from</CardTitle>
-          <CardDescription>Search provenance, so you can see which queries and grid points surface it.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          <ul className="space-y-0.5">
-            {found.map((f, i) => (
-              <li key={i}>Run #{f.runId} · {f.areaName} · “{f.query || "?"}”{f.gridIndex != null && <span className="text-muted-foreground"> · grid point {f.gridIndex}</span>}</li>
-            ))}
-            {found.length === 0 && <li className="text-muted-foreground">No run provenance recorded.</li>}
-          </ul>
-          {otherNiches.length > 0 && (
-            <p className="text-muted-foreground">
-              Also tracked in{" "}
-              {otherNiches.map((n, i) => (<span key={n.id}>{i > 0 && ", "}<Link className="text-blue-600 hover:underline" href={`/niches/${n.id}`}>{n.name}</Link></span>))}
-              . Contact history and the do-not-contact flag are shared, so notes never split across niches.
-            </p>
-          )}
-          <p className="text-xs text-muted-foreground">Call log, owner details and the pitch brief arrive with the outreach tracker.</p>
-        </CardContent>
-      </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Where it came from</CardTitle>
+                  <CardDescription>Which queries and grid points surfaced it.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm">
+                  <ul className="space-y-0.5">
+                    {found.map((f, i) => (
+                      <li key={i}>Run #{f.runId} · {f.areaName} · “{f.query || "?"}”{f.gridIndex != null && <span className="text-muted-foreground"> · grid point {f.gridIndex}</span>}</li>
+                    ))}
+                    {found.length === 0 && <li className="text-muted-foreground">No run provenance recorded.</li>}
+                  </ul>
+                  {otherNiches.length > 0 && (
+                    <p className="text-muted-foreground">
+                      Also tracked in{" "}
+                      {otherNiches.map((n, i) => (<span key={n.id}>{i > 0 && ", "}<Link className="text-blue-600 hover:underline dark:text-blue-400" href={`/niches/${n.id}`}>{n.name}</Link></span>))}
+                      . Contact history and the do-not-contact flag are shared, so notes never split across niches.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        }
+      />
     </FadeIn>
   );
 }

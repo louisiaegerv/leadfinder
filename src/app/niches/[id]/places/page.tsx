@@ -8,6 +8,7 @@ import { FadeIn } from "@/components/fade-in";
 import { FadeRow } from "@/components/fade-row";
 import { PlaceThumb } from "@/components/place-thumb";
 import { PlacesFilters } from "@/components/places-filters";
+import { StageBadge } from "@/components/stage-badge";
 import { ResultsNav } from "@/components/results-nav";
 import { OfferChip, ScoreBadge } from "@/components/score-bits";
 import { Badge } from "@/components/ui/badge";
@@ -31,6 +32,7 @@ export default async function PlacesPage({ params, searchParams }: { params: Pro
   const { rows, total, pages } = queryNichePlaces(niche.id, f);
   const counts = getRelevanceCounts(niche.id);
   const areas = getNicheAreasLite(niche.id);
+  const multiArea = areas.length > 1; // one area would repeat the same value on every row
   const base = `/niches/${niche.id}/places`;
   const qs = new URLSearchParams(Object.entries(sp).flatMap(([k, v]) => (typeof v === "string" && k !== "page" ? [[k, v]] : []))).toString();
 
@@ -75,16 +77,17 @@ export default async function PlacesPage({ params, searchParams }: { params: Pro
               <th className="px-2.5 py-2">{sortLink("title", "Business")}</th>
               <th className="px-2.5 py-2">{sortLink("score", "Score")}</th>
               <th className="px-2.5 py-2">Lead offer</th>
-              <th className="px-2.5 py-2">{sortLink("area", "Area")}</th>
-              <th className="px-2.5 py-2 text-right">{sortLink("rating", "Rating", "justify-end")}</th>
-              <th className="px-2.5 py-2 text-right">{sortLink("reviews", "Reviews", "justify-end")}</th>
+              {multiArea && <th className="px-2.5 py-2">{sortLink("area", "Area")}</th>}
+              <th className="px-2.5 py-2">Stage</th>
+              <th className="px-2.5 py-2 text-right">
+                <span className="inline-flex gap-1.5">{sortLink("rating", "Rating", "justify-end")}<span aria-hidden>·</span>{sortLink("reviews", "Reviews", "justify-end")}</span>
+              </th>
               <th className="px-2.5 py-2">Contact</th>
-              <th className="px-2.5 py-2">Relevance</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
-              <tr><td colSpan={8} className="px-2.5 py-10 text-center text-muted-foreground">Nothing matches these filters.</td></tr>
+              <tr><td colSpan={multiArea ? 7 : 6} className="px-2.5 py-10 text-center text-muted-foreground">Nothing matches these filters.</td></tr>
             )}
             {rows.map((r, i) => (
               <FadeRow key={r.placeId} index={i} className="border-t align-middle hover:bg-muted/30">
@@ -95,6 +98,11 @@ export default async function PlacesPage({ params, searchParams }: { params: Pro
                       <div className="flex items-center gap-1.5 font-medium">
                         {r.title}
                         {r.doNotContact && <Ban className="size-3.5 text-destructive" aria-label="Do not contact" />}
+                        {r.relevance !== "target" && (
+                          <Badge variant={r.relevance ? REL_VARIANT[r.relevance] : "outline"} title={r.relevanceReason ?? undefined} className="font-normal">
+                            {r.relevance ?? "undecided"}
+                          </Badge>
+                        )}
                       </div>
                       <div className="truncate text-xs text-muted-foreground">
                         {r.categories.slice(0, 2).join(", ")}{r.city ? ` · ${r.city}` : ""}
@@ -115,15 +123,14 @@ export default async function PlacesPage({ params, searchParams }: { params: Pro
                     {r.runnerUpOffer && <OfferChip offer={r.runnerUpOffer} muted className="text-[11px]" />}
                   </div>
                 </td>
-                <td className="whitespace-nowrap px-2.5 py-2">{r.areaName ?? "–"}</td>
-                <td className="px-2.5 py-2 text-right tabular-nums">{r.totalScore ?? "–"}</td>
-                <td className="px-2.5 py-2 text-right tabular-nums">{r.reviewsCount ?? "–"}</td>
+                {multiArea && <td className="whitespace-nowrap px-2.5 py-2">{r.areaName ?? "–"}</td>}
+                <td className="px-2.5 py-2"><StageBadge stage={r.stage} /></td>
+                <td className="whitespace-nowrap px-2.5 py-2 text-right tabular-nums">
+                  {r.totalScore ?? "–"} <span className="text-muted-foreground">· {r.reviewsCount ?? "–"}</span>
+                </td>
                 <td className="px-2.5 py-2 text-xs">
                   <div className="whitespace-nowrap">{r.phone ?? <span className="text-muted-foreground">no phone</span>}</div>
                   <div className="max-w-40 truncate text-muted-foreground" title={r.domain ?? undefined}>{r.domain ?? "no website"}</div>
-                </td>
-                <td className="px-2.5 py-2" title={r.relevanceReason ?? undefined}>
-                  {r.relevance ? <Badge variant={REL_VARIANT[r.relevance]}>{r.relevance}</Badge> : <span className="text-xs text-muted-foreground">undecided</span>}
                 </td>
               </FadeRow>
             ))}
