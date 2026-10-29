@@ -2,6 +2,7 @@ import { and, asc, desc, eq, isNotNull, isNull, notInArray, or, sql } from "driz
 import { db } from "@/db";
 import { contactLog, contacts, nichePlaces, niches, places } from "@/db/schema";
 import type { OfferKey, Stage } from "./offers";
+import { MAX_OWNER_NAME } from "./owner-limits";
 import { TERMINAL_OUTCOMES, addDays, startOfDay, stageAfter, type Outcome } from "./outreach";
 
 export type CallInput = {
@@ -46,6 +47,25 @@ export function recordCall(input: CallInput): { stage: Stage } {
     }
     return { stage };
   });
+}
+
+/**
+ * Type in (or fix) a business's owner. A typed name is marked as yours with full confidence, so no search or scan
+ * result will ever replace it. An empty name clears it, and forgets where it came from so a later search can fill it in.
+ * Do-not-contact and everything else on the contact are left alone.
+ */
+export function setManualOwner(placeId: string, name: string | null): { ownerName: string | null } {
+  const clean = (name ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_OWNER_NAME) || null;
+  const now = new Date();
+  if (clean === null) {
+    db.update(contacts).set({ ownerName: null, source: null, confidence: null, updatedAt: now }).where(eq(contacts.placeId, placeId)).run();
+    return { ownerName: null };
+  }
+  db.insert(contacts)
+    .values({ placeId, ownerName: clean, source: "manual", confidence: 1, updatedAt: now })
+    .onConflictDoUpdate({ target: contacts.placeId, set: { ownerName: clean, source: "manual", confidence: 1, updatedAt: now } })
+    .run();
+  return { ownerName: clean };
 }
 
 export function getCallLog(placeId: string) {

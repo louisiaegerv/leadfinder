@@ -1,7 +1,7 @@
 import { ensureScored } from "@/lib/rescore";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ExternalLink, Mail, MapPin, Phone, Star, UserRound } from "lucide-react";
+import { ExternalLink, Mail, MapPin, Phone, Star } from "lucide-react";
 import { AnimatedBar } from "@/components/animated-bar";
 import { CallLogPanel } from "@/components/call-log-panel";
 import { DetailTabs } from "@/components/detail-tabs";
@@ -9,6 +9,7 @@ import { EnrichButton } from "@/components/enrich-button";
 import { EnrichmentCard } from "@/components/enrichment-card";
 import { FacebookCard } from "@/components/facebook-card";
 import { FadeIn } from "@/components/fade-in";
+import { OwnerEditor } from "@/components/owner-editor";
 import { PitchBrief } from "@/components/pitch-brief";
 import { PlaceControls } from "@/components/place-controls";
 import { RecentReviews } from "@/components/recent-reviews";
@@ -115,20 +116,12 @@ export default async function PlaceDetailPage({
             <a className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 hover:bg-muted" href={`https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(p.placeId)}`} target="_blank" rel="noopener noreferrer"><ExternalLink className="size-3.5" /> Google Maps</a>
             <EnrichButton placeId={p.placeId} blockedReason={dnc} done={ownerSearch != null || enrichment != null} running={lookingUp} />
           </div>
-          {(ownerName || reach.emails.length > 0) && (
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-              {ownerName && (
-                <span className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2.5 py-1" title={ownerIsGuess ? "Best guess: a single source named them" : "Owner, confirmed by more than one source"}>
-                  <UserRound className="size-3.5" /> <b>{ownerName}</b>
-                  {ownerTitle && <span className="text-muted-foreground">{ownerTitle}</span>}
-                  {ownerIsGuess && <span className="text-xs text-muted-foreground">(best guess)</span>}
-                </span>
-              )}
-              {reach.emails.slice(0, 2).map((e) => (
-                <a key={e} className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 hover:bg-muted" href={`mailto:${e}`}><Mail className="size-3.5" /> {e}</a>
-              ))}
-            </div>
-          )}
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <OwnerEditor placeId={p.placeId} ownerName={ownerName} typedByYou={contact?.source === "manual"} isGuess={ownerIsGuess} role={ownerTitle} />
+            {reach.emails.slice(0, 2).map((e) => (
+              <a key={e} className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 hover:bg-muted" href={`mailto:${e}`}><Mail className="size-3.5" /> {e}</a>
+            ))}
+          </div>
           {isStreetView(p.imageUrl) && <p className="text-xs text-muted-foreground">Only a Street View image on Google, so no owner photos: a gap worth noting on a call.</p>}
         </div>
       </div>

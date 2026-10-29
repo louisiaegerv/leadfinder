@@ -11,7 +11,8 @@ import { clonePlaybook } from "@/lib/presets";
 import { playbookSchema } from "@/lib/playbook";
 import { OFFERS, STAGES } from "@/lib/offers";
 import { OUTCOMES, parseFollowUp } from "@/lib/outreach";
-import { clearFollowUp, deleteLogEntry, recordCall } from "@/lib/outreach-db";
+import { MAX_OWNER_NAME } from "@/lib/owner-limits";
+import { clearFollowUp, deleteLogEntry, recordCall, setManualOwner } from "@/lib/outreach-db";
 
 const nicheInput = z.object({
   name: z.string().trim().min(1, "Give the niche a name"),
@@ -193,6 +194,14 @@ export async function setStage(nicheId: number, placeId: string, stage: (typeof 
     .where(and(eq(nichePlaces.nicheId, nicheId), eq(nichePlaces.placeId, placeId)))
     .run();
   revalidatePath("/", "layout");
+}
+
+/** Type in an owner name as you come across it. Empty clears it. A typed name is never replaced by a search or scan. */
+export async function setOwnerName(placeId: string, name: string | null) {
+  const v = z.object({ placeId: z.string().min(1), name: z.string().trim().max(MAX_OWNER_NAME, `Keep the name under ${MAX_OWNER_NAME} characters`).nullable() }).parse({ placeId, name });
+  const result = setManualOwner(v.placeId, v.name);
+  revalidatePath("/", "layout");
+  return result;
 }
 
 export async function dismissFollowUp(logId: number) {
