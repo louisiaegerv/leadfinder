@@ -22,6 +22,26 @@ It runs on your own machine with your own Apify and OpenRouter keys. There is no
 
 Places are shared across niches, so a business is never scraped or paid for twice. Relevance and score are kept per niche, while contact history and do-not-contact are kept per business.
 
+| 1. Define a niche | 2. Draw an area |
+| --- | --- |
+| <img src="docs/leadfinder-newniche_md.webp" alt="New niche page with preset cards, a target definition, a playbook and a free preview of how many known places match" width="100%"> | <img src="docs/leadfinder-newarea_md.webp" alt="New area page with a polygon drawn over Austin on a map, grid spacing and run setup" width="100%"> |
+| Start from a preset. The free preview shows how many places you already have would match before you spend anything. | Draw a polygon or radius. The grid of search points is laid out for you. |
+
+| 3. See the cost first | 4. Confirm the launch |
+| --- | --- |
+| <img src="docs/leadfinder-areaestimate_sm.webp" alt="Estimate card showing grid points, run time, likely and maximum results and cost" width="100%"> | <img src="docs/leadfinder-newarea-run-launch-review_sm.webp" alt="Launch this run dialog with the likely cost, worst case and the hard cap sent to Apify" width="100%"> |
+| Likely and worst-case numbers, before anything runs. | A last look at likely cost, worst case and the hard cap. |
+
+<p align="center">
+  <img src="docs/leadfinder-prospect-table_md.webp" alt="Prospects table sorted by score, with tier, lead offer and runner-up, area, stage, rating and contact for each business" width="100%"><br>
+  <sub><b>5. Review prospects.</b> Sort and filter everything found. Each row shows its score, lead offer, runner-up and how to reach them.</sub>
+</p>
+
+| Same list, on a map | Gray zone, decided by an LLM |
+| --- | --- |
+| <img src="docs/leadfinder-prospect-map_md.webp" alt="Map of prospects coloured by tier, with the search areas outlined" width="100%"> | <img src="docs/leadfinder-prospect-ai-review_md.webp" alt="Dialog asking to classify undecided businesses with a model on OpenRouter, saying what is sent and that hand-set labels are never overwritten" width="100%"> |
+| Pins are coloured by tier, with your search areas outlined. | Says what is sent and to which model before it runs. |
+
 ## Enrichment
 
 "Enrich" on the table runs any of these over **everything your current filters match** (all pages, not just the visible rows, best scores first), after a cost confirmation. The dialog says exactly which filters it covers. With no filter chosen that is targets, adjacent and undecided, never noise. The buttons on a business's page do one business.
@@ -34,9 +54,24 @@ Places are shared across niches, so a business is never scraped or paid for twic
 | **Fetch reviews** | About $0.002 for the 5 newest | Collects just the chosen places' newest Google reviews by place ID, with no search area, far cheaper than re-running an area. Updates only the review sample and the fresh rating and review count, then rescores every niche that tracks them. |
 | **Paid website reader** | About $0.015 | The second pass for sites the quick scan can't read. Also gets emails, phones and services. Never automatic. |
 
+<p align="center">
+  <img src="docs/leadfinder-run-summary_sm.webp" alt="Run row showing 52 results, all new, and a note that 39 websites were scanned, 14 Facebook pages linked, with Raw data and Apify links" width="100%"><br>
+  <sub>A finished run says what the free quick scan found, and links to the raw data.</sub>
+</p>
+
 Only the quick scan is automatic. The paid searches (owner names, Facebook pages) are **off unless you tick them** in an area's run setup under "After the run: paid searches". Ticked ones start once the run's places are in, for the first 100 that don't already have the answer, and their cost is in the estimate and the launch confirmation. You can also type an owner name yourself as you come across it (the pencil next to the owner on a business's page). A typed name is never replaced by any search or scan, and a stronger finding is never replaced by a weaker one.
 
 Asking a run for the newest reviews ($0.25 per 1,000 reviews) dates each business's last review and shows whether the owner replies. A long gap points to the review-system offer, and a large review base that has gone quiet points to reactivation. A place already in your database gets its review data filled in when a run sees it again.
+
+| Paid searches, off unless ticked | Newest reviews |
+| --- | --- |
+| <img src="docs/leadfinder-newarea-enrichment-options_sm.webp" alt="After the run: paid searches, with toggles for owner-name search and Facebook page search and their per-business cost" width="100%"> | <img src="docs/leadfinder-newarea-reviews-option_sm.webp" alt="Include the newest reviews toggle with a reviews-per-place setting and the cost per 1,000 reviews" width="100%"> |
+| Both are in an area's run setup, each with its cost. | How many to fetch per place. 5 is enough to date the last review. |
+
+<p align="center">
+  <img src="docs/leadfinder-prospect-detail-extradetails_md.webp" alt="Details tab of a business with owner and contact, website signals, emails, phones, social links, the Facebook page, relevance override and do-not-contact" width="100%"><br>
+  <sub>What enrichment fills in on a business's Details tab: owner, emails, phones, socials and the Facebook page. You can override relevance or mark do-not-contact here.</sub>
+</p>
 
 ## The offers
 
@@ -63,6 +98,29 @@ score = fit gate × (capacity + gaps + reachability)
 
 Peers are compared at ZIP code and category first, then area, then the whole niche, and a comparison needs at least five businesses. Tiers run from A (65 and above) down to D. Trade-level assumptions count for less than facts about the specific business, so the same offer doesn't lead for everyone. Some evidence depends on today's date (how long since the last review), so scores refresh weekly. The weights live in `src/lib/scoring.ts`.
 
+<p align="center">
+  <img src="docs/leadfinder-prospect-detail-score_md.webp" alt="Score and offers tab with capacity, gaps and reachability bars, and a card of evidence for each of the five offers" width="100%"><br>
+  <sub>The Score &amp; offers tab. Inferred evidence is shown in orange.</sub>
+</p>
+
+## Outreach
+
+Each business opens on its Outreach tab: a call log with one tap per outcome, and a pitch brief with who to ask for, an opener, a follow-up question, what we noticed (with the evidence) and answers to likely objections. **Copy brief** puts it on the clipboard.
+
+<p align="center">
+  <img src="docs/leadfinder-prospect-detail-outreach2_md.webp" alt="A business page on the Outreach tab, with the call log outcomes beside a pitch brief with opener, evidence and objection answers" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/leadfinder-outreach_md.webp" alt="Outreach page with the Ready to call card, a daily goal progress bar, upcoming follow-ups, recent calls and objections" width="100%"><br>
+  <sub>The Outreach page: Ready to call, today's goal, follow-ups, recent calls and the objections you hear most.</sub>
+</p>
+
+| Working the queue | On a phone |
+| --- | --- |
+| <img src="docs/leadfinder-call-queue_md.webp" alt="A business page with a bar at the bottom showing a fresh lead, how many are waiting after it, and Skip and Call buttons" width="100%"> | <img src="docs/leadfinder-mobile-call-queue_md.webp" alt="The same business page on a phone, with the queue bar above a bottom tab bar for Niches, Outreach and More" width="60%"> |
+| A bar on each business: Skip hides it for today, Call dials it. | The queue bar sits above the tab bar. Niches, Outreach and More (Data, new niche, theme) are always one tap away. |
+
 ## Your data
 
 The **Data** page (in the sidebar, or under More on a phone) has three things:
@@ -70,6 +128,10 @@ The **Data** page (in the sidebar, or under More on a phone) has three things:
 - **Backup:** downloads the whole database as one file. Do it now and then, since your call history lives only in `data/leadfinder.db`. To restore, stop the app and put the file back in its place.
 - **Spreadsheets:** CSVs of every prospect (with score, owner, stage and Facebook page) and every logged call.
 - **Apify runs:** every run the app has started, with **Raw data** (exactly what Apify returned, as JSON) and a link to the run in your Apify console. Apify deletes old run data after a while, so download what you want to keep.
+
+<p align="center">
+  <img src="docs/leadfinder-data-backup-export_md.webp" alt="Data page with a Download backup button, CSV exports for prospects and the call log, and a table of Apify runs with raw data links" width="100%">
+</p>
 
 ## Roadmap
 

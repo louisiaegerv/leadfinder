@@ -194,11 +194,11 @@ function Group({
         {rows.map((f) => {
           const href = link(f.nicheId, f.placeId);
           return (
-            <li key={f.logId} className="flex items-center gap-3 px-3 py-2.5">
+            <li key={f.logId} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5 sm:flex-nowrap">
               <PlaceThumb title={f.title} imageUrl={f.imageUrl} thumbnailUrl={f.thumbnailUrl} logoUrl={f.logoUrl} size={40} />
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 basis-[calc(100%-3.25rem)] sm:basis-auto">
                 <div className="flex flex-wrap items-center gap-2">
-                  {href ? <Link href={href} className="truncate font-medium hover:underline">{f.title}</Link> : <span className="truncate font-medium">{f.title}</span>}
+                  {href ? <Link href={href} className="max-w-full truncate font-medium hover:underline">{f.title}</Link> : <span className="max-w-full truncate font-medium">{f.title}</span>}
                   {f.stage && <StageBadge stage={f.stage} />}
                   {f.leadOffer && <OfferChip offer={f.leadOffer} muted />}
                 </div>
@@ -208,7 +208,8 @@ function Group({
                   {f.nicheName && ` · ${f.nicheName}`}
                 </div>
               </div>
-              <div className="flex shrink-0 items-center gap-3 text-sm">
+              {/* On a phone the actions drop to their own line, lined up under the name (40px thumb + 12px gap). */}
+              <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 pl-13 text-sm sm:w-auto sm:shrink-0 sm:flex-nowrap sm:pl-0">
                 {f.phone && (
                   <a href={`tel:${f.phone}`} className="inline-flex items-center gap-1 whitespace-nowrap text-muted-foreground hover:text-foreground">
                     <Phone className="size-3.5" /> {f.phone}
