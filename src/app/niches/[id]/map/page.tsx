@@ -33,7 +33,7 @@ export default async function MapPage({ params, searchParams }: { params: Promis
         <Link href={`/niches/${niche.id}`} className="text-sm text-muted-foreground hover:underline">← {niche.name}</Link>
         <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold">Prospect map</h1>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <ClassifyButton nicheId={niche.id} gray={counts.gray} />
             <ResultsNav nicheId={niche.id} active="map" qs={qs} />
           </div>

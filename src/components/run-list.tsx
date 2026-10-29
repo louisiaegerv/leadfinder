@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { Download, ExternalLink, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { PostRunState } from "@/lib/post-run";
@@ -19,6 +19,8 @@ export type RunRow = {
   estimatedCostUsd: number | null;
   error: string | null;
   createdAt: number;
+  apifyRunId: string | null;
+  hasDataset: boolean;
   /** The free website scan that follows a run, if it started. */
   scan: AutoScanState | null;
   /** The paid searches ticked for this run, once started. */
@@ -109,7 +111,7 @@ export function RunList({ runs }: { runs: RunRow[] }) {
   if (runs.length === 0) return <p className="text-sm text-muted-foreground">No runs yet. Add an area and launch one.</p>;
 
   return (
-    <div className="overflow-hidden rounded-lg border">
+    <div className="overflow-x-auto rounded-lg border">
       <table className="w-full text-sm">
         <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
           <tr>
@@ -119,6 +121,7 @@ export function RunList({ runs }: { runs: RunRow[] }) {
             <th className="px-3 py-2 text-right">Results</th>
             <th className="px-3 py-2 text-right">New</th>
             <th className="px-3 py-2 text-right">Cost</th>
+            <th className="px-3 py-2">Data</th>
             <th className="px-3 py-2" />
           </tr>
         </thead>
@@ -152,6 +155,20 @@ export function RunList({ runs }: { runs: RunRow[] }) {
               <td className="px-3 py-2 text-right tabular-nums">{r.newPlaceCount ?? "–"}</td>
               <td className="px-3 py-2 text-right tabular-nums">
                 {r.costUsd != null ? `$${r.costUsd.toFixed(3)}` : r.estimatedCostUsd != null ? `~$${r.estimatedCostUsd.toFixed(2)}` : "–"}
+              </td>
+              <td className="px-3 py-2">
+                <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+                  {r.hasDataset && (
+                    <a href={`/api/export/runs/maps/${r.id}`} className="inline-flex items-center gap-1 whitespace-nowrap underline-offset-2 hover:text-foreground hover:underline">
+                      <Download className="size-3" /> Raw data
+                    </a>
+                  )}
+                  {r.apifyRunId && (
+                    <a href={`https://console.apify.com/actors/runs/${encodeURIComponent(r.apifyRunId)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 whitespace-nowrap underline-offset-2 hover:text-foreground hover:underline">
+                      <ExternalLink className="size-3" /> Apify
+                    </a>
+                  )}
+                </div>
               </td>
               <td className="px-3 py-2 text-right">
                 {(r.status === "running" || r.status === "pending") && (

@@ -150,4 +150,9 @@ export async function fetchDataset(datasetId: string, pageSize = 1000): Promise<
   return out;
 }
 
+/** The dataset exactly as Apify holds it (not cleaned), as a stream, for saving to a file. */
+export async function openDatasetRaw(datasetId: string): Promise<Response> {
+  return call(`/datasets/${encodeURIComponent(datasetId)}/items?format=json`);
+}
+
 export const TERMINAL = new Set(["SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"]);

@@ -85,6 +85,8 @@ export default async function NichePage({ params }: { params: Promise<{ id: stri
             estimatedCostUsd: run.estimatedCostUsd,
             error: run.error,
             createdAt: run.createdAt.getTime(),
+            apifyRunId: run.apifyRunId,
+            hasDataset: !!run.datasetId,
             scan: getAutoScan(run.id),
             postRun: getPostRun(run.id),
           }))}

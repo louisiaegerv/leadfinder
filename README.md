@@ -34,7 +34,7 @@ Places are shared across niches, so a business is never scraped or paid for twic
 | **Fetch reviews** | About $0.002 for the 5 newest | Collects just the chosen places' newest Google reviews by place ID, with no search area, far cheaper than re-running an area. Updates only the review sample and the fresh rating and review count, then rescores every niche that tracks them. |
 | **Paid website reader** | About $0.015 | The second pass for sites the quick scan can't read. Also gets emails, phones and services. Never automatic. |
 
-Only the quick scan is automatic. The paid searches (owner names, Facebook pages) are **off unless you tick them** in an area's run setup under "After the run: paid searches". Ticked ones start once the run's places are in, for the first 100 that don't already have the answer, and their cost is in the estimate and the launch confirmation. A result never replaces an owner name you typed, and a stronger finding is never replaced by a weaker one.
+Only the quick scan is automatic. The paid searches (owner names, Facebook pages) are **off unless you tick them** in an area's run setup under "After the run: paid searches". Ticked ones start once the run's places are in, for the first 100 that don't already have the answer, and their cost is in the estimate and the launch confirmation. You can also type an owner name yourself as you come across it (the pencil next to the owner on a business's page). A typed name is never replaced by any search or scan, and a stronger finding is never replaced by a weaker one.
 
 Asking a run for the newest reviews ($0.25 per 1,000 reviews) dates each business's last review and shows whether the owner replies. A long gap points to the review-system offer, and a large review base that has gone quiet points to reactivation. A place already in your database gets its review data filled in when a run sees it again.
 
@@ -63,6 +63,14 @@ score = fit gate × (capacity + gaps + reachability)
 
 Peers are compared at ZIP code and category first, then area, then the whole niche, and a comparison needs at least five businesses. Tiers run from A (65 and above) down to D. Trade-level assumptions count for less than facts about the specific business, so the same offer doesn't lead for everyone. Some evidence depends on today's date (how long since the last review), so scores refresh weekly. The weights live in `src/lib/scoring.ts`.
 
+## Your data
+
+The **Data** page (in the sidebar, or under More on a phone) has three things:
+
+- **Backup:** downloads the whole database as one file. Do it now and then, since your call history lives only in `data/leadfinder.db`. To restore, stop the app and put the file back in its place.
+- **Spreadsheets:** CSVs of every prospect (with score, owner, stage and Facebook page) and every logged call.
+- **Apify runs:** every run the app has started, with **Raw data** (exactly what Apify returned, as JSON) and a link to the run in your Apify console. Apify deletes old run data after a while, so download what you want to keep.
+
 ## Roadmap
 
 **Built:** niches and presets, areas and cost-previewed runs, relevance rules plus an LLM gray-zone review, offer-fit scoring with visible evidence, the prospects table, map and detail pages, all of the enrichment above, review recency, and the outreach tracker.
@@ -72,7 +80,7 @@ Peers are compared at ZIP code and category first, then area, then the whole nic
 - **Meta Ad Library check.** Whether a Facebook page runs ads. The page and its ID are already saved, but the scoring's Facebook state is still empty.
 - **Coverage panel and AI keyword discovery:** cost per new on-target place, saturation, probe runs.
 - **Territory guard** for signed clients.
-- **Editing by hand:** typing an owner name, or clearing a wrong Facebook match.
+- **Clearing a wrong Facebook match** by hand (you can already type or fix an owner name).
 
 ## Setup
 
@@ -96,7 +104,7 @@ The SQLite database is created at `data/leadfinder.db` and migrated on first req
 | `APIFY_ENRICH_ACTOR_ID` | Website-reading actor. Defaults to `menus-r-us/business-profile-enricher`. |
 | `AUTO_SCAN_ON_INGEST` | Set to `0` to stop the free quick scan from running after each Maps run. |
 | `OPENROUTER_API_KEY` | Your OpenRouter key. Used by the gray-zone review and the owner search. |
-| `OPENROUTER_MODEL` | Model used for both. |
+| `OPENROUTER_MODEL` | Model used for both. The model's hidden "thinking" is switched off for these short jobs, because a reasoning model can spend the whole token limit on it and return no answer. |
 
 To open the dev server from another device on your network, add that device's host to `allowedDevOrigins` in `next.config.ts`.
 

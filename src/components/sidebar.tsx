@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Phone, Plus, Radar } from "lucide-react";
+import { Database, Phone, Plus, Radar } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { countDueFollowUps } from "@/lib/outreach-db";
 import { listNiches } from "@/lib/queries";
@@ -15,12 +15,15 @@ export function Sidebar() {
         </Link>
         <ThemeToggle />
       </div>
-      <div className="px-2 pb-3">
+      <div className="space-y-0.5 px-2 pb-3">
         <Link href="/outreach" className="flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium hover:bg-muted">
           <span className="inline-flex items-center gap-2"><Phone className="size-4" /> Outreach</span>
           {due > 0 && (
             <span className="rounded-full bg-destructive px-1.5 text-xs font-semibold tabular-nums text-white" title={`${due} follow-up${due === 1 ? "" : "s"} due`}>{due}</span>
           )}
+        </Link>
+        <Link href="/data" className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium hover:bg-muted">
+          <Database className="size-4" /> Data
         </Link>
       </div>
       <div className="flex items-center justify-between pr-2 pb-1 pl-3">

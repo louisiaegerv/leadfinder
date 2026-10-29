@@ -55,7 +55,7 @@ export default async function PlacesPage({ params, searchParams }: { params: Pro
         <Link href={`/niches/${niche.id}`} className="text-sm text-muted-foreground hover:underline">← {niche.name}</Link>
         <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold">Prospects</h1>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <BulkEnrichButton nicheId={niche.id} running={getActiveRuns().length > 0} />
             <ClassifyButton nicheId={niche.id} gray={counts.gray} />
             <ResultsNav nicheId={niche.id} active="table" qs={qs} />
