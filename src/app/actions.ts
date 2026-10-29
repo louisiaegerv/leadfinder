@@ -13,6 +13,8 @@ import { OFFERS, STAGES } from "@/lib/offers";
 import { OUTCOMES, parseFollowUp } from "@/lib/outreach";
 import { MAX_OWNER_NAME } from "@/lib/owner-limits";
 import { clearFollowUp, deleteLogEntry, recordCall, setManualOwner } from "@/lib/outreach-db";
+import { MAX_DAILY_GOAL, queueUrl } from "@/lib/call-queue";
+import { nextLead, setDailyGoal as saveDailyGoal, skipToday } from "@/lib/call-queue-db";
 
 const nicheInput = z.object({
   name: z.string().trim().min(1, "Give the niche a name"),
@@ -212,4 +214,29 @@ export async function dismissFollowUp(logId: number) {
 export async function deleteCallEntry(logId: number) {
   deleteLogEntry(logId);
   revalidatePath("/", "layout");
+}
+
+const queueArgs = z.object({ nicheId: z.number().int().positive(), placeId: z.string().min(1), adjacent: z.boolean() });
+
+/** The page for the next business in the queue after this one, or null when the queue is empty. */
+export async function nextLeadUrl(nicheId: number, placeId: string, adjacent: boolean): Promise<string | null> {
+  const v = queueArgs.parse({ nicheId, placeId, adjacent });
+  const next = nextLead(v.nicheId, v.placeId, { adjacent: v.adjacent });
+  return next ? queueUrl(v.nicheId, next.placeId, v.adjacent) : null;
+}
+
+/** Hide this business for the rest of today (nothing is logged), then say where the next one is. */
+export async function skipLead(nicheId: number, placeId: string, adjacent: boolean): Promise<string | null> {
+  const v = queueArgs.parse({ nicheId, placeId, adjacent });
+  skipToday(v.placeId);
+  const next = nextLead(v.nicheId, v.placeId, { adjacent: v.adjacent });
+  revalidatePath("/", "layout");
+  return next ? queueUrl(v.nicheId, next.placeId, v.adjacent) : null;
+}
+
+/** How many calls you want to make a day. Empty clears it. */
+export async function setDailyGoal(goal: number | null) {
+  const v = z.number().int().min(1).max(MAX_DAILY_GOAL).nullable().parse(goal);
+  saveDailyGoal(v);
+  revalidatePath("/outreach");
 }

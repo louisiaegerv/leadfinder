@@ -17,7 +17,7 @@ It runs on your own machine with your own Apify and OpenRouter keys. There is no
 3. **Launch a run.** After you confirm the estimate, a Google Maps scrape starts on Apify with a hard per-run spend cap. Results are fetched, normalized and deduplicated into one local database. A run can also collect each place's newest reviews, and start the paid searches below, if you tick them.
 4. **Review prospects.** A sortable, filterable table (and a map) of everything found, each with a score, a lead offer and a runner-up. Open a business to see exactly why it scored the way it did, with the evidence.
 5. **Enrich.** Fill in who owns each business and how to reach them, from free to paid (below).
-6. **Work the list.** Log each call: what happened, what you pitched, the objection you heard, and when to follow up. The stage moves on its own. The Outreach page lists follow-ups that are due and tallies objections, and each business has a pitch brief with an opener, the evidence and answers to likely objections.
+6. **Work the list.** Log each call: what happened, what you pitched, the objection you heard, and when to follow up. The stage moves on its own. The Outreach page has a **Ready to call** card: Start calling opens your due follow-ups first, then the best untouched leads, and a bar on each business gives you Call, Skip (hides it for today) and, on the call form, Save and next. You can set a daily call goal there. The page also lists follow-ups that are due and tallies objections, and each business has a pitch brief with an opener, the evidence and answers to likely objections.
 7. **Decide the gray zone.** Rules sort most businesses into target or noise. The ones they can't decide can be reviewed in a batch by an LLM. Your own decision always wins.
 
 Places are shared across niches, so a business is never scraped or paid for twice. Relevance and score are kept per niche, while contact history and do-not-contact are kept per business.
@@ -73,7 +73,7 @@ The **Data** page (in the sidebar, or under More on a phone) has three things:
 
 ## Roadmap
 
-**Built:** niches and presets, areas and cost-previewed runs, relevance rules plus an LLM gray-zone review, offer-fit scoring with visible evidence, the prospects table, map and detail pages, all of the enrichment above, review recency, and the outreach tracker.
+**Built:** niches and presets, areas and cost-previewed runs, relevance rules plus an LLM gray-zone review, offer-fit scoring with visible evidence, the prospects table, map and detail pages, all of the enrichment above, review recency, the outreach tracker with a call queue, backup and exports, and a phone layout with a bottom tab bar.
 
 **Not built yet:**
 
@@ -128,6 +128,6 @@ Next.js (App Router) · Tailwind and shadcn · Framer Motion · SQLite through D
 - `cid` is stored as text. The dataset JSON is pre-processed so 19-digit ids never pass through a JavaScript number.
 - Grid points are an estimate of the actor's search centres. `src/lib/geo.test.ts` checks them against the 14 centres from a real run.
 - Business photos are stored as Google image URLs, not downloaded. If they stop loading, the app falls back to an initials tile.
-- Press **D** to switch between light and dark mode.
+- Press **D** to switch between light and dark mode. On a phone, use More in the bottom tab bar.
 - Cache Components is turned off in `next.config.ts` on purpose: every page reads the local database per request.
 - Tests run against throwaway SQLite files and stubbed network calls, never your real database or real Apify. (`APIFY_API_BASE`, `OPENROUTER_API_BASE` and `SITE_SCAN_ALLOW_PRIVATE` exist only so tests can point at local stand-ins. Don't set them for real use.)

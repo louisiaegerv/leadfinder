@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CalendarClock, Loader2, Phone, Trash2 } from "lucide-react";
-import { deleteCallEntry, logCall } from "@/app/actions";
+import { CalendarClock, ChevronRight, Loader2, Phone, Trash2 } from "lucide-react";
+import { deleteCallEntry, logCall, nextLeadUrl } from "@/app/actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -38,12 +39,16 @@ export function CallLogPanel({
   placeId,
   defaultOffer,
   entries,
+  queue,
 }: {
   nicheId: number;
   placeId: string;
   defaultOffer: OfferKey | null;
   entries: LogEntry[];
+  /** Set while working the call queue: adds a button that logs the call and opens the next lead. */
+  queue?: { adjacent: boolean } | null;
 }) {
+  const router = useRouter();
   const [pending, start] = useTransition();
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [notes, setNotes] = useState("");
@@ -60,7 +65,7 @@ export function CallLogPanel({
     setFollowUp(days == null ? "" : toDateInput(addDays(new Date(), days)));
   }
 
-  function submit() {
+  function submit(andNext = false) {
     if (!outcome) return;
     start(async () => {
       try {
@@ -78,6 +83,14 @@ export function CallLogPanel({
         setNotes("");
         setObjection("");
         setFollowUp("");
+        if (andNext && queue) {
+          const next = await nextLeadUrl(nicheId, placeId, queue.adjacent);
+          if (next) router.push(next);
+          else {
+            toast.success("That's the whole queue for now");
+            router.push("/outreach");
+          }
+        }
       } catch {
         toast.error("Could not log the call");
       }
@@ -144,9 +157,16 @@ export function CallLogPanel({
               )}
               {outcome === "dnc" && <p className="text-xs text-destructive">This also marks the business do-not-contact in every niche.</p>}
 
-              <Button onClick={submit} disabled={pending}>
-                {pending && <Loader2 className="animate-spin" />} Log call
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                {queue && (
+                  <Button onClick={() => submit(true)} disabled={pending}>
+                    {pending ? <Loader2 className="animate-spin" /> : <ChevronRight />} Save and next
+                  </Button>
+                )}
+                <Button variant={queue ? "outline" : "default"} onClick={() => submit()} disabled={pending}>
+                  {pending && !queue && <Loader2 className="animate-spin" />} {queue ? "Save" : "Log call"}
+                </Button>
+              </div>
             </>
           )}
           {!outcome && <p className="text-xs text-muted-foreground">Pick what happened to log a call.</p>}

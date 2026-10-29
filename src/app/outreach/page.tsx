@@ -1,5 +1,10 @@
 import Link from "next/link";
-import { CalendarClock, Phone } from "lucide-react";
+import { CalendarClock, Check, Phone, Play } from "lucide-react";
+import { DailyGoal } from "@/components/daily-goal";
+import { buttonVariants } from "@/components/ui/button";
+import { queueUrl } from "@/lib/call-queue";
+import { dialsToday, getDailyGoal, nextLead, queueCounts } from "@/lib/call-queue-db";
+import { listNiches } from "@/lib/queries";
 import { FadeIn } from "@/components/fade-in";
 import { FollowUpDone } from "@/components/follow-up-done";
 import { PlaceThumb } from "@/components/place-thumb";
@@ -23,8 +28,17 @@ function dueLabel(followUp: Date, now: Date): string {
   return followUp.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
-export default async function OutreachPage() {
+const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
+const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+
+export default async function OutreachPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const sp = await searchParams;
   const now = new Date();
+  const adjacent = one(sp.adj) === "1";
+  const counts = listNiches().map((n) => ({ niche: n, ...queueCounts(n.id, { adjacent }) }));
+  const picked = counts.find((c) => String(c.niche.id) === one(sp.niche)) ?? counts.find((c) => c.total > 0) ?? counts[0] ?? null;
+  const first = picked ? nextLead(picked.niche.id, null, { adjacent }) : null;
+  const pickHref = (nicheId: number, adj: boolean) => `/outreach?niche=${nicheId}${adj ? "&adj=1" : ""}`;
   const followUps = getFollowUps();
   const activity = getRecentActivity(15);
   const objections = getObjectionTally();
@@ -41,6 +55,49 @@ export default async function OutreachPage() {
           {due > 0 ? `${due} follow-up${due === 1 ? "" : "s"} due now.` : "Nothing due right now."} Log calls from a business&apos;s page.
         </p>
       </div>
+
+      {picked && (
+        <section className="space-y-4 rounded-xl border bg-card p-4" aria-label="Ready to call">
+          <div>
+            <h2 className="text-lg font-semibold">Ready to call</h2>
+            <p className="text-sm text-muted-foreground">
+              {picked.total === 0
+                ? "Nothing to call in this niche right now."
+                : `${plural(picked.followUps, "follow-up")} due · ${plural(picked.fresh, "fresh lead")}. Follow-ups come first, then the best scores.`}
+            </p>
+          </div>
+
+          {counts.length > 1 && (
+            <div className="flex flex-wrap gap-1.5">
+              {counts.map((c) => (
+                <Link
+                  key={c.niche.id}
+                  href={pickHref(c.niche.id, adjacent)}
+                  className={cn("rounded-full border px-3 py-1 text-sm transition-colors", c.niche.id === picked.niche.id ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted")}
+                >
+                  {c.niche.name} <span className="tabular-nums opacity-70">{c.total}</span>
+                </Link>
+              ))}
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            {first ? (
+              <Link href={queueUrl(picked.niche.id, first.placeId, adjacent)} className={buttonVariants({ size: "lg" })}>
+                <Play /> Start calling
+              </Link>
+            ) : (
+              <span className="text-sm text-muted-foreground">Nothing waiting.</span>
+            )}
+            <Link href={pickHref(picked.niche.id, !adjacent)} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+              <span className={cn("grid size-4 place-items-center rounded border", adjacent && "border-primary bg-primary text-primary-foreground")}>{adjacent && <Check className="size-3" />}</span>
+              Include adjacent businesses
+            </Link>
+          </div>
+
+          <DailyGoal dials={dialsToday(now)} goal={getDailyGoal()} />
+        </section>
+      )}
 
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">Follow-ups</h2>

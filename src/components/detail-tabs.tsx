@@ -36,7 +36,7 @@ export function DetailTabs({
 
   return (
     <Tabs value={tab} onValueChange={change} className="gap-4">
-      <TabsList variant="line" className="h-10 w-full justify-start gap-6 rounded-none border-b px-0 pb-0">
+      <TabsList variant="line" className="h-10 w-full justify-start gap-4 rounded-none sm:gap-6 border-b px-0 pb-0">
         <TabsTrigger value="outreach" className="h-10 flex-none px-1 after:bottom-[-1px]">
           <Phone /> Outreach
           {callCount > 0 && <span className="rounded-full bg-muted px-1.5 text-xs tabular-nums text-muted-foreground">{callCount}</span>}

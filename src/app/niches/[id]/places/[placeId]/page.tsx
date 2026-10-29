@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { ExternalLink, Mail, MapPin, Phone, Star } from "lucide-react";
 import { AnimatedBar } from "@/components/animated-bar";
 import { CallLogPanel } from "@/components/call-log-panel";
+import { QueueBar } from "@/components/queue-bar";
 import { DetailTabs } from "@/components/detail-tabs";
 import { EnrichButton } from "@/components/enrich-button";
 import { EnrichmentCard } from "@/components/enrichment-card";
@@ -28,6 +29,8 @@ import { getContactInfo, getSiteScan } from "@/lib/site-scan-db";
 import { isStreetView } from "@/lib/images";
 import { OFFER_LABEL, OFFERS, type OfferKey } from "@/lib/offers";
 import { OFFER_STYLE } from "@/lib/offer-ui";
+import { getQueue } from "@/lib/call-queue-db";
+import { parseQueueParams } from "@/lib/call-queue";
 import { getCallLog } from "@/lib/outreach-db";
 import { buildBrief } from "@/lib/pitch";
 import { getNiche, getPlaceDetail } from "@/lib/queries";
@@ -56,6 +59,12 @@ export default async function PlaceDetailPage({
   const d = getPlaceDetail(niche.id, decode(raw));
   if (!d) notFound();
   const { place: p, np, areaName, contact, fb, found, otherNiches } = d;
+
+  // Working the call queue: where this business sits in it, and how many others are waiting.
+  const qp = parseQueueParams(sp);
+  const queue = qp.on ? getQueue(niche.id, { adjacent: qp.adjacent }) : null;
+  const inQueue = queue?.find((i) => i.placeId === p.placeId) ?? null;
+  const waiting = queue ? queue.filter((i) => i.placeId !== p.placeId).length : 0;
 
   const offers = OFFERS.map((o) => ({ key: o, ...(np.offerScores?.[o] ?? { score: 0, evidence: [] as string[] }) })).sort((a, b) => b.score - a.score);
   const bd = np.scoreBreakdown;
@@ -89,6 +98,7 @@ export default async function PlaceDetailPage({
     : null;
 
   return (
+    <>
     <FadeIn className="mx-auto max-w-5xl space-y-6">
       <Link href={`/niches/${niche.id}/places`} className="text-sm text-muted-foreground hover:underline">← Prospects</Link>
 
@@ -131,7 +141,7 @@ export default async function PlaceDetailPage({
         callCount={log.length}
         outreach={
           <div className="grid items-start gap-4 lg:grid-cols-2">
-            <CallLogPanel nicheId={niche.id} placeId={p.placeId} defaultOffer={np.leadOffer} entries={log} />
+            <CallLogPanel nicheId={niche.id} placeId={p.placeId} defaultOffer={np.leadOffer} entries={log} queue={qp.on ? { adjacent: qp.adjacent } : null} />
             <PitchBrief brief={brief} title={p.title} />
           </div>
         }
@@ -258,7 +268,11 @@ export default async function PlaceDetailPage({
           </div>
         }
       />
+      {qp.on && <div className="h-16" aria-hidden />}
     </FadeIn>
+    {/* Outside FadeIn: its animated transform would stop this fixed bar from sticking to the screen. */}
+    {qp.on && <QueueBar nicheId={niche.id} placeId={p.placeId} title={p.title} phone={p.phone} kind={inQueue?.kind ?? null} left={waiting} adjacent={qp.adjacent} />}
+    </>
   );
 }
 
