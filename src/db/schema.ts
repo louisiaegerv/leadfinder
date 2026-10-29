@@ -195,6 +195,28 @@ export const contactLog = sqliteTable("contact_log", {
   createdAt: ts("created_at").notNull().$defaultFn(now),
 });
 
+/** One Apify enrichment run over a batch of business websites (maps each URL back to its place). */
+export const enrichmentRuns = sqliteTable("enrichment_runs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  apifyRunId: text("apify_run_id"),
+  datasetId: text("dataset_id"),
+  /** "site" reads each business's website; "search" googles for the owner and has a model read the snippets. */
+  kind: text("kind", { enum: ["site", "search"] }).notNull().default("site"),
+  /** "ingesting" is held while results are applied, so two pollers never do the work (and the model spend) twice. */
+  status: text("status", { enum: ["running", "ingesting", "ingested", "failed", "aborted"] })
+    .notNull()
+    .default("running"),
+  targets: text("targets", { mode: "json" }).$type<{ placeId: string; url: string }[]>().notNull(),
+  /** Search runs: the queries sent per place, and whether to read websites for the ones not found. */
+  meta: text("meta", { mode: "json" }).$type<{ queries: Record<string, string[]>; fallback: boolean }>(),
+  enrichedCount: integer("enriched_count"),
+  ownerCount: integer("owner_count"),
+  costUsd: real("cost_usd"),
+  error: text("error"),
+  createdAt: ts("created_at").notNull().$defaultFn(now),
+  finishedAt: ts("finished_at"),
+});
+
 /** Generic enrichment cache keyed by place_id (+ kind). */
 export const enrichment = sqliteTable(
   "enrichment",

@@ -142,6 +142,9 @@ function where(nicheId: number, f: PlaceFilters): SQL {
   return and(...conds)!;
 }
 
+/** The table's filters as a SQL condition, so other features can act on exactly the rows you are looking at. */
+export { where as nicheFilterWhere };
+
 const SORT_COLUMN = {
   score: nichePlaces.score,
   reviews: places.reviewsCount,
@@ -176,6 +179,7 @@ export function queryNichePlaces(nicheId: number, f: PlaceFilters) {
       stage: nichePlaces.stage,
       areaName: areas.name,
       doNotContact: contacts.doNotContact,
+      ownerName: contacts.ownerName,
     })
     .from(nichePlaces)
     .innerJoin(places, eq(places.placeId, nichePlaces.placeId))

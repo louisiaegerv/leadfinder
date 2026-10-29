@@ -1,10 +1,12 @@
 import { ensureScored } from "@/lib/rescore";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ExternalLink, MapPin, Phone, Star } from "lucide-react";
+import { ExternalLink, Mail, MapPin, Phone, Star, UserRound } from "lucide-react";
 import { AnimatedBar } from "@/components/animated-bar";
 import { CallLogPanel } from "@/components/call-log-panel";
 import { DetailTabs } from "@/components/detail-tabs";
+import { EnrichButton } from "@/components/enrich-button";
+import { EnrichmentCard } from "@/components/enrichment-card";
 import { FadeIn } from "@/components/fade-in";
 import { PitchBrief } from "@/components/pitch-brief";
 import { PlaceControls } from "@/components/place-controls";
@@ -15,6 +17,10 @@ import { StageSelect } from "@/components/stage-select";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { parseTab } from "@/lib/detail-tab";
+import { enrichableUrl } from "@/lib/enrich";
+import { getEnrichment, placesInFlight } from "@/lib/enrich-db";
+import { getOwnerSearch } from "@/lib/owner-search-db";
+import { getContactInfo, getSiteScan } from "@/lib/site-scan-db";
 import { isStreetView } from "@/lib/images";
 import { OFFER_LABEL, OFFERS, type OfferKey } from "@/lib/offers";
 import { OFFER_STYLE } from "@/lib/offer-ui";
@@ -62,11 +68,22 @@ export default async function PlaceDetailPage({
     followUp: e.followUp?.getTime() ?? null,
     createdAt: e.createdAt.getTime(),
   }));
+  const enrichment = getEnrichment(p.placeId);
+  const ownerSearch = getOwnerSearch(p.placeId);
+  const scan = getSiteScan(p.placeId);
+  const reach = getContactInfo(p.placeId);
+  const lookingUp = placesInFlight().has(p.placeId);
+  const ownerName = contact?.ownerName ?? null;
+  const ownerIsGuess = (contact?.confidence ?? 1) < 0.8;
+  const ownerTitle = enrichment?.profile.people.find((x) => x.name === ownerName)?.title ?? null;
+  const dnc = contact?.doNotContact ? "Marked do-not-contact" : null;
+  const siteBlocked = dnc ?? (enrichableUrl(p) ? null : "No business website to read (only a social page, or none)");
   const brief = np.leadOffer
     ? buildBrief({
         offer: np.leadOffer,
         runnerUp: np.runnerUpOffer,
         title: p.title,
+        owner: ownerName,
         reviews: p.reviewsCount,
         rating: p.totalScore,
         evidence: np.offerScores?.[np.leadOffer]?.evidence ?? [],
@@ -99,7 +116,22 @@ export default async function PlaceDetailPage({
             {p.phone && <a className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 hover:bg-muted" href={`tel:${p.phone}`}><Phone className="size-3.5" /> {p.phone}</a>}
             {p.website && <a className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 hover:bg-muted" href={p.website} target="_blank" rel="noopener noreferrer"><ExternalLink className="size-3.5" /> {p.domain ?? "Website"}</a>}
             <a className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 hover:bg-muted" href={`https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(p.placeId)}`} target="_blank" rel="noopener noreferrer"><ExternalLink className="size-3.5" /> Google Maps</a>
+            <EnrichButton placeId={p.placeId} blockedReason={dnc} done={ownerSearch != null || enrichment != null} running={lookingUp} />
           </div>
+          {(ownerName || reach.emails.length > 0) && (
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              {ownerName && (
+                <span className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2.5 py-1" title={ownerIsGuess ? "Best guess: a single source named them" : "Owner, confirmed by more than one source"}>
+                  <UserRound className="size-3.5" /> <b>{ownerName}</b>
+                  {ownerTitle && <span className="text-muted-foreground">{ownerTitle}</span>}
+                  {ownerIsGuess && <span className="text-xs text-muted-foreground">(best guess)</span>}
+                </span>
+              )}
+              {reach.emails.slice(0, 2).map((e) => (
+                <a key={e} className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 hover:bg-muted" href={`mailto:${e}`}><Mail className="size-3.5" /> {e}</a>
+              ))}
+            </div>
+          )}
           {isStreetView(p.imageUrl) && <p className="text-xs text-muted-foreground">Only a Street View image on Google, so no owner photos: a gap worth noting on a call.</p>}
         </div>
       </div>
@@ -152,6 +184,20 @@ export default async function PlaceDetailPage({
         }
         details={
           <div className="space-y-4">
+            <EnrichmentCard
+              site={enrichment}
+              search={ownerSearch}
+              scan={scan}
+              contact={reach}
+              ownerName={ownerName}
+              ownerIsGuess={ownerIsGuess}
+              actions={
+                <>
+                  <EnrichButton placeId={p.placeId} method="scan" fallback={false} blockedReason={siteBlocked} done={scan != null} running={false} />
+                  <EnrichButton placeId={p.placeId} method="site" blockedReason={siteBlocked} done={enrichment != null} running={lookingUp} />
+                </>
+              }
+            />
             <div className="grid items-start gap-4 md:grid-cols-2">
               <Card>
                 <CardHeader>
@@ -179,7 +225,17 @@ export default async function PlaceDetailPage({
                       {fb.pageUrl && <a className="text-blue-600 hover:underline dark:text-blue-400" href={fb.pageUrl} target="_blank" rel="noopener noreferrer">{fb.pageUrl}</a>}
                     </>
                   ) : (
-                    <p className="text-muted-foreground">Not checked yet. The Facebook page match and Ad Library steps come in a later phase; until then the Facebook-ads fit is estimated from trade and reviews only.</p>
+                    <>
+                      {fb?.pageUrl && (
+                        <p>
+                          Page linked from their website:{" "}
+                          <a className="text-blue-600 hover:underline dark:text-blue-400" href={fb.pageUrl} target="_blank" rel="noopener noreferrer">{fb.pageUrl}</a>
+                        </p>
+                      )}
+                      <p className="text-muted-foreground">
+                        {fb?.pageUrl ? "Whether it runs ads is not checked yet." : "Not checked yet."} The Ad Library step comes in a later phase; until then the Facebook-ads fit is estimated from trade, reviews and site signals.
+                      </p>
+                    </>
                   )}
                 </CardContent>
               </Card>

@@ -64,6 +64,14 @@ describe("buildBrief", () => {
     expect(b.fallback).toBeNull();
   });
 
+  it("tells you who to ask for when the owner is known, and says nothing when not", () => {
+    const withOwner = buildBrief({ ...base, offer: "review_system", owner: "Jane Doe" });
+    expect(withOwner.askFor).toBe("Jane Doe");
+    expect(briefToText(withOwner, "Acme Concrete")).toContain("Ask for: Jane Doe");
+    expect(buildBrief({ ...base, offer: "review_system" }).askFor).toBeNull();
+    expect(briefToText(buildBrief({ ...base, offer: "review_system", owner: "  " }), "Acme")).not.toContain("Ask for:");
+  });
+
   it("still reads sensibly with no reviews and offers the runner-up as a pivot", () => {
     const b = buildBrief({ ...base, reviews: null, rating: null, offer: "facebook_ads", runnerUp: "speed_to_lead" });
     expect(b.hook).not.toMatch(/null|undefined/);

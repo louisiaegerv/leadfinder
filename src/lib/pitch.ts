@@ -4,6 +4,8 @@ export type BriefInput = {
   offer: OfferKey;
   runnerUp: OfferKey | null;
   title: string;
+  /** Owner name from enrichment, when known. */
+  owner?: string | null;
   reviews: number | null;
   rating: number | null;
   evidence: string[];
@@ -11,6 +13,7 @@ export type BriefInput = {
 
 export type Brief = {
   offer: OfferKey;
+  askFor: string | null;
   hook: string;
   question: string;
   facts: string[];
@@ -93,6 +96,7 @@ export function buildBrief(b: BriefInput): Brief {
   const fallback = b.runnerUp && b.runnerUp !== b.offer ? { offer: b.runnerUp, hook: ANGLES[b.runnerUp].hook(b) } : null;
   return {
     offer: b.offer,
+    askFor: b.owner?.trim() || null,
     hook: angle.hook(b),
     question: angle.question,
     facts: b.evidence.filter(isBusinessFact),
@@ -107,6 +111,7 @@ export function briefToText(brief: Brief, title: string): string {
   const out = [
     `${title}: lead with ${OFFER_LABEL[brief.offer]}`,
     "",
+    ...(brief.askFor ? [`Ask for: ${brief.askFor}`] : []),
     `Opener: ${brief.hook}`,
     `Ask: ${brief.question}`,
   ];

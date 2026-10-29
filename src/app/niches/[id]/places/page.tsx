@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowDown, ArrowUp, Ban } from "lucide-react";
 import { AnimatedBar } from "@/components/animated-bar";
+import { BulkEnrichButton } from "@/components/bulk-enrich-button";
 import { ClassifyButton } from "@/components/classify-button";
 import { FadeIn } from "@/components/fade-in";
 import { FadeRow } from "@/components/fade-row";
@@ -14,6 +15,7 @@ import { OfferChip, ScoreBadge } from "@/components/score-bits";
 import { Badge } from "@/components/ui/badge";
 import { TIER_STYLE } from "@/lib/offer-ui";
 import { tierOf } from "@/lib/scoring";
+import { getActiveRuns } from "@/lib/enrich-db";
 import { getNiche, getNicheAreasLite, getRelevanceCounts, parseFilters, queryNichePlaces, type SortKey } from "@/lib/queries";
 import { withParams } from "@/lib/url";
 
@@ -54,6 +56,7 @@ export default async function PlacesPage({ params, searchParams }: { params: Pro
         <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold">Prospects</h1>
           <div className="flex items-center gap-2">
+            <BulkEnrichButton nicheId={niche.id} running={getActiveRuns().length > 0} />
             <ClassifyButton nicheId={niche.id} gray={counts.gray} />
             <ResultsNav nicheId={niche.id} active="table" qs={qs} />
           </div>
@@ -131,6 +134,7 @@ export default async function PlacesPage({ params, searchParams }: { params: Pro
                 <td className="px-2.5 py-2 text-xs">
                   <div className="whitespace-nowrap">{r.phone ?? <span className="text-muted-foreground">no phone</span>}</div>
                   <div className="max-w-40 truncate text-muted-foreground" title={r.domain ?? undefined}>{r.domain ?? "no website"}</div>
+                  {r.ownerName && <div className="max-w-40 truncate font-medium" title="Owner (from enrichment)">{r.ownerName}</div>}
                 </td>
               </FadeRow>
             ))}

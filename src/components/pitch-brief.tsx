@@ -31,6 +31,7 @@ export function PitchBrief({ brief, title }: { brief: Brief | null; title: strin
         </div>
       </CardHeader>
       <CardContent className="space-y-4 text-sm">
+        {brief.askFor && <Block label="Ask for">{brief.askFor}, by name.</Block>}
         <Block label="Opener">{brief.hook}</Block>
         <Block label="Then ask">{brief.question}</Block>
 

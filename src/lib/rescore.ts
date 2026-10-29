@@ -1,9 +1,10 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { facebookProfiles, nichePlaces, niches, places, settings } from "@/db/schema";
+import { enrichment, facebookProfiles, nichePlaces, niches, places, settings } from "@/db/schema";
 import { playbookSchema } from "./playbook";
 import { classifyByRules } from "./relevance";
 import { SCORING_VERSION, buildPeerLookup, scorePlace, type ScoreInput } from "./scoring";
+import type { SiteSignals } from "./site-types";
 
 /**
  * Backfill scores when they are missing (rows that predate scoring) or were made
@@ -88,14 +89,19 @@ export function rescoreNiche(nicheId: number): number {
       openingHours: places.openingHours,
       bookingLinks: places.bookingLinks,
       facebookState: facebookProfiles.state,
+      siteScan: enrichment.data,
     })
     .from(nichePlaces)
     .innerJoin(places, eq(places.placeId, nichePlaces.placeId))
     .leftJoin(facebookProfiles, eq(facebookProfiles.placeId, nichePlaces.placeId))
+    .leftJoin(enrichment, and(eq(enrichment.placeId, nichePlaces.placeId), eq(enrichment.kind, "site_scan")))
     .where(eq(nichePlaces.nicheId, nicheId))
     .all();
 
-  const inputs: (ScoreInput & { placeId: string })[] = rows;
+  const inputs: (ScoreInput & { placeId: string })[] = rows.map(({ siteScan, ...r }) => ({
+    ...r,
+    site: (siteScan as { signals?: SiteSignals } | null)?.signals ?? null,
+  }));
   const peers = buildPeerLookup(inputs);
 
   db.transaction((tx) => {

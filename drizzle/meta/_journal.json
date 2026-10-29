@@ -29,6 +29,20 @@
       "when": 1793231073081,
       "tag": "0003_amusing_cannonball",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1793245321949,
+      "tag": "0004_lumpy_corsair",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1793248664469,
+      "tag": "0005_polite_shadow_king",
+      "breakpoints": true
     }
   ]
 }

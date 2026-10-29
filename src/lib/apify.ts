@@ -5,6 +5,8 @@ import type { ApifyPlan, Shape } from "./geo";
 const API = process.env.APIFY_API_BASE ?? "https://api.apify.com/v2";
 
 export const MAPS_ACTOR = () => process.env.APIFY_MAPS_ACTOR_ID || "scraperlink/google-maps-scraper";
+export const ENRICH_ACTOR = () => process.env.APIFY_ENRICH_ACTOR_ID || "menus-r-us/business-profile-enricher";
+export const SEARCH_ACTOR = () => process.env.APIFY_SEARCH_ACTOR_ID || "scraperlink/google-search-results-serp-scraper";
 export const PLAN = (): ApifyPlan => {
   const p = (process.env.APIFY_PLAN ?? "free").toLowerCase();
   return (["free", "starter", "scale", "business"] as const).find((x) => x === p) ?? "free";
@@ -85,9 +87,15 @@ export type ApifyRun = {
   statusMessage?: string;
 };
 
-export async function startRun(input: Record<string, unknown>, maxChargeUsd: number): Promise<ApifyRun> {
+export async function startRun(
+  input: Record<string, unknown>,
+  maxChargeUsd: number,
+  actorId: string = MAPS_ACTOR(),
+  timeoutSecs?: number,
+): Promise<ApifyRun> {
+  const timeout = timeoutSecs ? `&timeout=${Math.round(timeoutSecs)}` : "";
   const res = await call(
-    `/acts/${actorPath(MAPS_ACTOR())}/runs?maxTotalChargeUsd=${encodeURIComponent(String(maxChargeUsd))}`,
+    `/acts/${actorPath(actorId)}/runs?maxTotalChargeUsd=${encodeURIComponent(String(maxChargeUsd))}${timeout}`,
     { method: "POST", body: JSON.stringify(input) },
   );
   return (await res.json()).data as ApifyRun;

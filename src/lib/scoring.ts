@@ -1,6 +1,7 @@
 import type { FacebookState, OfferKey } from "./offers";
 import { OFFERS } from "./offers";
 import type { Playbook } from "./playbook";
+import type { SiteSignals } from "./site-types";
 
 /**
  * Offer-fit engine. A fixed model (no scoring editor): every place gets a fit
@@ -27,6 +28,8 @@ export type ScoreInput = {
   openingHours: Record<string, string> | null;
   bookingLinks: string[] | null;
   facebookState: FacebookState | null;
+  /** From a website scan, when one has been run. Absent means "not scanned", never "nothing found". */
+  site?: SiteSignals | null;
 };
 
 export type OfferScore = { score: number; evidence: string[] };
@@ -194,6 +197,11 @@ const fmtTime = (min: number) => {
 
 type Ctx = { p: ScoreInput; pb: Playbook; peers: Peers | null; site: WebsiteKind; hours: ReturnType<typeof hoursSignals> };
 
+/** A scan only says something about the page when it could actually read it (or proved the site is gone). */
+const readable = (p: ScoreInput) => p.site?.outcome === "ok";
+const DIY_BUILDERS = new Set(["wix", "godaddy", "weebly"]);
+const STALE_YEARS = 3;
+
 function reviewSystem({ p, pb, peers }: Ctx): RawOffer {
   const t = new Tally();
   const reviews = p.reviewsCount ?? 0;
@@ -245,6 +253,10 @@ function speedToLead({ p, pb, hours }: Ctx): RawOffer {
   if ((p.reviewsCount ?? 0) >= 15) t.add(10, `${INFER}${p.reviewsCount} reviews suggests steady inbound demand`);
   if (p.facebookState === "active_ads") t.add(25, "Running Facebook ads: leads are already arriving");
   else if (p.facebookState === "active_ads_weak_landing") t.add(20, "Running Facebook ads to a weak landing page");
+  if (readable(p) && p.site) {
+    if (!p.site.chat && !p.site.hasForm) t.add(10, "No contact form or chat found on the site's main pages: a visitor can only phone");
+    if (p.site.chat) t.add(-5, `Already has a chat widget (${p.site.chat})`);
+  }
   return { score: t.score, evidence: t.evidence, prior: t.priorPoints };
 }
 
@@ -260,6 +272,10 @@ function facebookAds({ p, pb, site }: Ctx): RawOffer {
   if (site === "social" && p.domain?.includes("facebook"))
     t.add(10, `${INFER}Uses Facebook as its website, so it is active on the platform`);
   if (pb.trade.seasonality === "seasonal") t.prior(5, "Seasonal trade: ads can time demand");
+  if (readable(p) && p.site) {
+    if (p.site.fbPixel) t.add(6, `${INFER}Facebook Pixel on the site: they track Facebook traffic, and may have run ads`);
+    if (p.site.facebookUrl && !p.facebookState) t.add(3, "Links a Facebook page from its website, so it is active on the platform");
+  }
   switch (p.facebookState) {
     case "page_no_ads": t.add(35, "Has a Facebook page but no active ads"); break;
     case "active_ads": t.add(-15, "Already running Facebook ads"); break;
@@ -277,6 +293,14 @@ function website({ p, pb, site }: Ctx): RawOffer {
   else if (site === "builder") t.add(40, `${INFER}Free site-builder domain (${p.domain})`);
   else if (site === "directory") t.add(40, `${INFER}Lists a directory page (${p.domain}) instead of its own site`);
   else t.note(`Has its own website (${p.domain})`);
+  if (p.site?.outcome === "dead") t.add(40, `${INFER}The website did not load when we checked (domain not found or page gone)`);
+  if (readable(p) && p.site && site === "own") {
+    const year = new Date().getFullYear();
+    if (!p.site.viewport) t.add(15, "No mobile viewport tag: the site is probably not mobile-friendly");
+    if (p.site.copyrightYear && p.site.copyrightYear <= year - STALE_YEARS) t.add(10, `${INFER}Footer says © ${p.site.copyrightYear}, so the site may not be maintained`);
+    if (!p.site.hasForm && !p.site.hasBooking) t.add(6, "No quote or contact form found on the site's main pages");
+    if (p.site.builder && DIY_BUILDERS.has(p.site.builder)) t.add(5, `${INFER}Built on ${p.site.builder} (a do-it-yourself builder)`);
+  }
   if (site !== "own") {
     if (p.facebookState === "no_page") t.add(20, "No Facebook page either: no web presence beyond Maps");
     if ((p.reviewsCount ?? 0) >= 25) t.add(15, `${p.reviewsCount} reviews: worth building a site for`);
@@ -301,7 +325,7 @@ const LEAD_MIN = 30;
 const PRIOR_SHARE = 0.4;
 
 /** Bump when the scoring rules change; stored scores are recomputed once on the next page load. */
-export const SCORING_VERSION = 2;
+export const SCORING_VERSION = 3;
 
 export function scorePlace(p: ScoreInput, pb: Playbook, peers: Peers | null): ScoreResult {
   const site = websiteKind(p.domain, p.website);
