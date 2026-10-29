@@ -1,0 +1,223 @@
+import { ensureScored } from "@/lib/rescore";
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { ExternalLink, MapPin, Phone, Star } from "lucide-react";
+import { AnimatedBar } from "@/components/animated-bar";
+import { FadeIn } from "@/components/fade-in";
+import { PlaceControls } from "@/components/place-controls";
+import { PlaceThumb } from "@/components/place-thumb";
+import { OfferChip, ScoreBadge } from "@/components/score-bits";
+import { CapacityTip, FitGateTip, GapsTip, ReachabilityTip } from "@/components/score-help";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { isStreetView } from "@/lib/images";
+import { OFFER_LABEL, OFFERS, type OfferKey } from "@/lib/offers";
+import { OFFER_STYLE } from "@/lib/offer-ui";
+import { getNiche, getPlaceDetail } from "@/lib/queries";
+import { cn } from "@/lib/utils";
+
+const FB_LABEL = {
+  no_page: "No Facebook page found",
+  page_no_ads: "Facebook page, no active ads",
+  active_ads: "Running Facebook ads",
+  active_ads_weak_landing: "Running ads to a weak landing page",
+} as const;
+
+function decode(id: string) {
+  try {
+    return id.includes("%") ? decodeURIComponent(id) : id;
+  } catch {
+    return id;
+  }
+}
+
+export default async function PlaceDetailPage({ params }: { params: Promise<{ id: string; placeId: string }> }) {
+  const { id, placeId: raw } = await params;
+  const niche = getNiche(Number(id));
+  if (!niche) notFound();
+  ensureScored();
+  const d = getPlaceDetail(niche.id, decode(raw));
+  if (!d) notFound();
+  const { place: p, np, areaName, contact, fb, found, otherNiches } = d;
+
+  const offers = OFFERS.map((o) => ({ key: o, ...(np.offerScores?.[o] ?? { score: 0, evidence: [] as string[] }) })).sort((a, b) => b.score - a.score);
+  const bd = np.scoreBreakdown;
+
+  return (
+    <FadeIn className="mx-auto max-w-5xl space-y-6">
+      <Link href={`/niches/${niche.id}/places`} className="text-sm text-muted-foreground hover:underline">← Prospects</Link>
+
+      <div className="flex flex-wrap items-start gap-5">
+        <PlaceThumb title={p.title} imageUrl={p.imageUrl} thumbnailUrl={p.thumbnailUrl} logoUrl={p.logoUrl} size={96} />
+        <div className="min-w-0 flex-1 space-y-2">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-semibold">{p.title}</h1>
+            <ScoreBadge score={np.score} />
+            {contact?.doNotContact && <Badge variant="destructive">Do not contact</Badge>}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {p.categories.map((c) => <Badge key={c} variant="secondary">{c}</Badge>)}
+          </div>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-muted-foreground">
+            {p.address && <span className="inline-flex items-center gap-1"><MapPin className="size-3.5" /> {p.address}</span>}
+            {p.totalScore != null && <span className="inline-flex items-center gap-1"><Star className="size-3.5" /> {p.totalScore} ({p.reviewsCount ?? 0} reviews)</span>}
+            {p.photosCount != null && <span>{p.photosCount} photos</span>}
+            {areaName && <span>Area: {areaName}</span>}
+          </div>
+          <div className="flex flex-wrap gap-2 text-sm">
+            {p.phone && <a className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 hover:bg-muted" href={`tel:${p.phone}`}><Phone className="size-3.5" /> {p.phone}</a>}
+            {p.website && <a className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 hover:bg-muted" href={p.website} target="_blank" rel="noopener noreferrer"><ExternalLink className="size-3.5" /> {p.domain ?? "Website"}</a>}
+            <a className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 hover:bg-muted" href={`https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(p.placeId)}`} target="_blank" rel="noopener noreferrer"><ExternalLink className="size-3.5" /> Google Maps</a>
+          </div>
+          {isStreetView(p.imageUrl) && <p className="text-xs text-muted-foreground">Only a Street View image on Google, so no owner photos: a gap worth noting on a call.</p>}
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Why this score</CardTitle>
+            <CardDescription>Fit gate × (capacity + gaps + reachability)</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            {bd ? (
+              <>
+                <Part label="Fit gate" value={`×${bd.fit}`} tip={<FitGateTip />} />
+                <Bar label="Capacity" value={bd.capacity} max={40} tip={<CapacityTip />} delay={0} />
+                <Bar label="Gaps" value={bd.gaps} max={35} tip={<GapsTip />} delay={0.1} />
+                <Bar label="Reachability" value={bd.reachability} max={25} tip={<ReachabilityTip />} delay={0.2} />
+                {bd.notes.map((n) => <p key={n} className="text-xs text-amber-700 dark:text-amber-400">{n}</p>)}
+              </>
+            ) : (
+              <p className="text-muted-foreground">Not scored yet.</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Your call</CardTitle>
+            <CardDescription>Overrides apply to this niche only, except do-not-contact.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <PlaceControls
+              nicheId={niche.id}
+              placeId={p.placeId}
+              relevance={np.relevance}
+              source={np.relevanceSource}
+              reason={np.relevanceReason}
+              doNotContact={contact?.doNotContact ?? false}
+            />
+          </CardContent>
+        </Card>
+      </div>
+
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <h2 className="text-lg font-semibold">Offer fit</h2>
+          <span className="text-sm text-muted-foreground">Lead with</span>
+          <OfferChip offer={np.leadOffer} />
+          {np.runnerUpOffer && (<><span className="text-sm text-muted-foreground">then</span><OfferChip offer={np.runnerUpOffer} muted /></>)}
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          {offers.map((o) => <OfferCard key={o.key} offer={o.key} score={o.score} evidence={o.evidence} lead={np.leadOffer === o.key} />)}
+        </div>
+      </section>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader><CardTitle>Facebook</CardTitle></CardHeader>
+          <CardContent className="space-y-1 text-sm">
+            {fb?.state ? (
+              <>
+                <p>{FB_LABEL[fb.state]}</p>
+                {fb.pageUrl && <a className="text-blue-600 hover:underline" href={fb.pageUrl} target="_blank" rel="noopener noreferrer">{fb.pageUrl}</a>}
+              </>
+            ) : (
+              <p className="text-muted-foreground">Not checked yet. The Facebook page match and Ad Library steps come in a later phase; until then the Facebook-ads fit is estimated from trade and reviews only.</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle>Hours</CardTitle></CardHeader>
+          <CardContent className="text-sm">
+            {p.openingHours && Object.keys(p.openingHours).length ? (
+              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5">
+                {Object.entries(p.openingHours).map(([day, h]) => (<div key={day} className="contents"><dt className="text-muted-foreground">{day}</dt><dd>{h}</dd></div>))}
+              </dl>
+            ) : <p className="text-muted-foreground">No hours listed on Google.</p>}
+            <p className="mt-2 text-xs text-muted-foreground">{p.bookingLinks?.length ? `${p.bookingLinks.length} booking link(s) on the listing.` : "No booking link on the listing."}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Where it came from</CardTitle>
+          <CardDescription>Search provenance, so you can see which queries and grid points surface it.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          <ul className="space-y-0.5">
+            {found.map((f, i) => (
+              <li key={i}>Run #{f.runId} · {f.areaName} · “{f.query || "?"}”{f.gridIndex != null && <span className="text-muted-foreground"> · grid point {f.gridIndex}</span>}</li>
+            ))}
+            {found.length === 0 && <li className="text-muted-foreground">No run provenance recorded.</li>}
+          </ul>
+          {otherNiches.length > 0 && (
+            <p className="text-muted-foreground">
+              Also tracked in{" "}
+              {otherNiches.map((n, i) => (<span key={n.id}>{i > 0 && ", "}<Link className="text-blue-600 hover:underline" href={`/niches/${n.id}`}>{n.name}</Link></span>))}
+              . Contact history and the do-not-contact flag are shared, so notes never split across niches.
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground">Call log, owner details and the pitch brief arrive with the outreach tracker.</p>
+        </CardContent>
+      </Card>
+    </FadeIn>
+  );
+}
+
+function Part({ label, value, tip }: { label: string; value: string; tip: React.ReactNode }) {
+  return (
+    <div className="flex justify-between">
+      <span className="inline-flex items-center gap-1.5 text-muted-foreground">{label}{tip}</span>
+      <span className="font-medium tabular-nums">{value}</span>
+    </div>
+  );
+}
+
+function Bar({ label, value, max, tip, delay }: { label: string; value: number; max: number; tip: React.ReactNode; delay: number }) {
+  return (
+    <div>
+      <div className="flex justify-between">
+        <span className="inline-flex items-center gap-1.5 text-muted-foreground">{label}{tip}</span>
+        <span className="font-medium tabular-nums">{value} / {max}</span>
+      </div>
+      <div className="mt-1 h-1.5 rounded-full bg-muted"><AnimatedBar pct={(value / max) * 100} delay={delay} /></div>
+    </div>
+  );
+}
+
+function OfferCard({ offer, score, evidence, lead }: { offer: OfferKey; score: number; evidence: string[]; lead: boolean }) {
+  return (
+    <Card className={cn(lead && "ring-2 ring-blue-500/40")}>
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between text-base">
+          <span>{OFFER_LABEL[offer]}</span>
+          <span className="tabular-nums">{score}</span>
+        </CardTitle>
+        <div className="h-1.5 rounded-full bg-muted"><AnimatedBar pct={score} className={OFFER_STYLE[offer].bar} /></div>
+      </CardHeader>
+      <CardContent>
+        {evidence.length === 0 ? <p className="text-sm text-muted-foreground">No supporting evidence.</p> : (
+          <ul className="space-y-1 text-sm">
+            {evidence.map((e, i) => (
+              <li key={i} className={cn(e.startsWith("(inferred)") && "italic text-amber-700 dark:text-amber-400", e.startsWith("Pending:") && "text-muted-foreground")}>{e}</li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}

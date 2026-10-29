@@ -1,0 +1,1 @@
+ALTER TABLE `niche_places` ADD `score_breakdown` text;
