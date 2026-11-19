@@ -36,7 +36,7 @@ function chips(scan: SiteScan): Chip[] {
   if (!s.https) out.push({ text: "Not HTTPS", gap: true });
   if (!s.viewport) out.push({ text: "No mobile viewport tag", gap: true });
   if (s.hasBooking) out.push({ text: "Online booking", gap: false });
-  else if (!s.hasForm) out.push({ text: "No contact or quote form", gap: true });
+  else if (!s.hasForm) out.push({ text: "No contact or quote form found", gap: true });
   else out.push({ text: "Has a contact form", gap: false });
   out.push(s.chat ? { text: `Chat: ${s.chat}`, gap: false } : { text: "No chat widget", gap: false });
   if (s.fbPixel) out.push({ text: "Facebook Pixel", gap: false });

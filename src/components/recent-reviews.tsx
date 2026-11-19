@@ -63,13 +63,21 @@ export function RecentReviews({ sample, sampledAt, action }: { sample: ReviewSam
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
                       <span>{ageLabel(days)} ago</span>
-                      {r.replied && (
-                        <span className="inline-flex items-center gap-1">
+                      {r.replied && !r.reply && (
+                        <span className="inline-flex items-center gap-1" title="Saved before replies were kept. Fetch the reviews again to read it.">
                           <MessageSquareReply className="size-3" /> owner replied
                         </span>
                       )}
                     </div>
                     <p className={cn("line-clamp-3", !r.text && "text-muted-foreground")}>{r.text ?? "(rating only, no text)"}</p>
+                    {r.reply && (
+                      <div className="mt-1.5 border-l-2 pl-3">
+                        <div className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                          <MessageSquareReply className="size-3" /> Owner replied
+                        </div>
+                        <p className="whitespace-pre-line text-muted-foreground">{r.reply}</p>
+                      </div>
+                    )}
                   </div>
                 </li>
               );

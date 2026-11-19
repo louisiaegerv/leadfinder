@@ -157,6 +157,34 @@ describe("scanning prospects", () => {
     expect(sd.getSiteScan("DEAD")!.scan.outcome).toBe("dead");
   });
 
+  it("keeps the page text of a readable site in its own table, not in the saved scan", async () => {
+    const pt = await import("./page-text-db");
+    const texts = pt.loadPageText(["A", "PLAIN", "BLANK", "DEAD"]);
+    expect([...texts.keys()].sort()).toEqual(["A", "PLAIN"]); // sites that could not be read leave nothing
+    expect(texts.get("A")).toContain("We install epoxy and polished concrete floors");
+    expect(pt.havePageText(["A", "BLANK"])).toEqual(new Set(["A"]));
+    expect("pageText" in sd.getSiteScan("A")!.scan).toBe(false);
+  });
+
+  it("replaces the page text on a new scan, and a failed scan never wipes it", async () => {
+    const pt = await import("./page-text-db");
+    mk("REPLACE", "https://replace.com/");
+    sites["https://replace.com/"] = ok(html(`<p>We install epoxy floors. ${"Filler words about our company history. ".repeat(12)}</p>`), "https://replace.com/");
+    await sd.scanPlaces(["REPLACE"], { fetcher });
+    expect(pt.loadPageText(["REPLACE"]).get("REPLACE")).toContain("install epoxy floors");
+
+    sites["https://replace.com/"] = ok(html(`<p>Now we only do tile and carpet. ${"Filler words about our company history. ".repeat(12)}</p>`), "https://replace.com/");
+    await sd.scanPlaces(["REPLACE"], { fetcher });
+    const now = pt.loadPageText(["REPLACE"]).get("REPLACE")!;
+    expect(now).toContain("tile and carpet");
+    expect(now).not.toContain("epoxy");
+
+    sites["https://replace.com/"] = { status: 0, finalUrl: "https://replace.com/", contentType: "", html: "", error: "ENOTFOUND" };
+    await sd.scanPlaces(["REPLACE"], { fetcher });
+    expect(sd.getSiteScan("REPLACE")!.scan.outcome).toBe("dead");
+    expect(pt.loadPageText(["REPLACE"]).get("REPLACE")).toContain("tile and carpet"); // the last good text is kept
+  });
+
   it("fills the Facebook page link from the site, but never over one you chose", () => {
     expect(db.select().from(s.facebookProfiles).where(eq(s.facebookProfiles.placeId, "A")).get()).toMatchObject({
       pageUrl: "https://www.facebook.com/AcmeA", matchSource: "maps_website", matchConfidence: 0.8, state: null,
@@ -260,6 +288,85 @@ describe("scanning prospects", () => {
     it("shows a scan that was cut off by a restart as interrupted, not as running forever", () => {
       db.insert(s.settings).values({ key: "autoscan:424242", value: { state: "scanning", total: 10, done: 4 } }).run();
       expect(sd.getAutoScan(424242)).toEqual({ state: "interrupted", total: 10, done: 4 });
+    });
+  });
+
+  describe("reading the websites that need it", () => {
+    const saveOld = (id: string, data: Record<string, unknown> = {}) =>
+      db.insert(s.enrichment).values({ placeId: id, kind: "site_scan", source: "site-scan", data: { outcome: "ok", signals: {}, ...data } }).run();
+    const mine = (ids: string[]) => ids.filter((id) => id.startsWith("OLD")).sort();
+    const setRel = (id: string, relevance: "target" | "noise" | null, relevanceSource: "rules" | "llm" | "user" | null, relevanceReason: string | null = null) =>
+      db.update(s.nichePlaces).set({ relevance, relevanceSource, relevanceReason }).where(eq(s.nichePlaces.placeId, id)).run();
+
+    beforeAll(async () => {
+      const { NO_EVIDENCE_REASON } = await import("./relevance");
+      sites["https://old1.com/"] = ok(html(`<p>${FILL}</p>`, `<meta name="description" content="Epoxy floors in Houston">`), "https://old1.com/");
+      for (let i = 1; i <= 9; i++) mk(`OLD${i}`, i === 5 ? null : `https://old${i}.com/`); // OLD5 has no website
+      for (const id of ["OLD1", "OLD2", "OLD3", "OLD5", "OLD6", "OLD7", "OLD8"]) saveOld(id); // old-format scans
+      const { savePageText } = await import("./page-text-db");
+      saveOld("OLD4", { about: null, description: null, heading: null, services: null }); // current format, nothing to say
+      savePageText(db, "OLD4", "A short page about our company."); // and its page text is saved
+      mk("OLD10", "https://old10.com/");
+      saveOld("OLD10", { services: null }); // readable and in the current format, but its page text was never saved
+      mk("OLD11", "https://old11.com/");
+      saveOld("OLD11", { outcome: "blocked", services: null }); // blocked: a second look would find no text either
+      // OLD9 was never scanned.
+      setRel("OLD2", "noise", "user"); // you said noise
+      db.insert(s.contacts).values({ placeId: "OLD3", doNotContact: true }).run();
+      setRel("OLD6", "noise", "rules", NO_EVIDENCE_REASON); // no category or keyword: a website could rescue it
+      db.update(s.niches).set({ playbook: { ...emptyPlaybook(), chainExclusions: ["Biz OLD7"] } }).where(eq(s.niches.id, nicheId)).run(); // so the rules keep calling it a chain
+      setRel("OLD7", "noise", "rules", "Chain on exclusion list: Biz OLD7");
+      setRel("OLD8", "noise", "llm", "AI said noise");
+    });
+
+    it("finds sites never scanned, scanned in the old format or without saved page text, and noise a website could still change", () => {
+      expect(mine(sd.findScansToRefresh(nicheId))).toEqual(["OLD1", "OLD10", "OLD6", "OLD9"]);
+      expect(sd.findScansToRefresh(999999)).toEqual([]);
+    });
+
+    it("leaves out do-not-contact, no website, current scans, unreadable sites, and noise from a chain, an excluded category, the AI or you", () => {
+      const ids = sd.findScansToRefresh(nicheId);
+      for (const out of ["OLD2", "OLD3", "OLD4", "OLD5", "OLD7", "OLD8", "OLD11"]) expect(ids).not.toContain(out);
+    });
+
+    it("reads them in the background, once, and a repeat finds nothing left of them", async () => {
+      sites["https://old6.com/"] = ok(html(`<h2>Epoxy and polyaspartic floors</h2><p>${FILL}</p>`), "https://old6.com/");
+      sites["https://old9.com/"] = ok(html(`<p>${FILL}</p>`), "https://old9.com/");
+      sites["https://old10.com/"] = ok(html(`<p>${FILL}</p>`), "https://old10.com/");
+      const started = sd.startBackfill(nicheId, { fetcher });
+      expect(started!.total).toBe(sd.findScansToRefresh(nicheId).length);
+      expect(sd.startBackfill(nicheId, { fetcher })).toBeNull(); // already running
+      expect(sd.getBackfill(nicheId)).toMatchObject({ state: "scanning", done: 0 });
+      await started!.task;
+
+      expect(sd.getBackfill(nicheId)).toMatchObject({ state: "done", total: started!.total });
+      expect(sd.getSiteScan("OLD1")!.scan).toMatchObject({ description: "Epoxy floors in Houston" });
+      expect(sd.getSiteScan("OLD9")).not.toBeNull(); // the never-scanned one has a scan now
+      expect(sd.getSiteScan("OLD2")!.scan.services).toBeUndefined(); // left alone
+      expect(mine(sd.findScansToRefresh(nicheId))).toEqual([]);
+      expect(sd.startBackfill(nicheId, { fetcher })).toBeNull();
+    });
+
+    it("saves page text during the refresh, then settles a business from it when the keywords change, with no new scan", async () => {
+      const pt = await import("./page-text-db");
+      const { reclassifyNiche } = await import("./rescore");
+      expect(pt.havePageText(["OLD1", "OLD9", "OLD10"])).toEqual(new Set(["OLD1", "OLD9", "OLD10"]));
+
+      const before = apify.length;
+      db.update(s.niches).set({ playbook: { ...emptyPlaybook(), includeKeywords: ["polished concrete", "metallic epoxy"] } }).where(eq(s.niches.id, nicheId)).run();
+      mk("TXT1", "https://txt1.com/");
+      mk("TXT2", "https://txt2.com/");
+      pt.savePageText(db, "TXT1", "Commercial flooring. Our services: polished concrete, metallic epoxy coatings and carpet.");
+      pt.savePageText(db, "TXT2", "Commercial flooring. We do carpet, tile and the odd polished concrete floor.");
+      for (const id of ["TXT1", "TXT2"]) setRel(id, null, null);
+      reclassifyNiche(nicheId);
+
+      const row = (id: string) => db.select().from(s.nichePlaces).where(eq(s.nichePlaces.placeId, id)).get()!;
+      expect(row("TXT1")).toMatchObject({ relevance: "target", relevanceSource: "rules" });
+      expect(row("TXT1").relevanceReason).toContain('keyword "polished concrete" in their page text ("');
+      expect(row("TXT1").relevanceReason).toContain("metallic epoxy coatings");
+      expect(row("TXT2")).toMatchObject({ relevance: "noise", relevanceReason: "No target category or keyword" }); // one keyword, in passing: not a point
+      expect(apify.length).toBe(before);
     });
   });
 });

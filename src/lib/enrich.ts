@@ -18,7 +18,8 @@ export const maxBusinessesForCap = (cap: number) => Math.max(0, Math.floor((cap 
  * The website to send to the enricher, or null when there is nothing worth reading:
  * no website, or only a social/directory page (the owner isn't on a Facebook page's "about").
  * Always the site's front page: Maps often stores a deep landing page with tracking parameters,
- * but the About, Contact and Team pages the actor looks for hang off the front page.
+ * but the About, Contact and Team pages the actor looks for hang off the front page. (The free
+ * scan also reads the listed page itself, see listedPageUrl.)
  */
 export function enrichableUrl(p: { website: string | null; domain: string | null }): string | null {
   const kind = websiteKind(p.domain, p.website);
@@ -27,6 +28,28 @@ export function enrichableUrl(p: { website: string | null; domain: string | null
   if (!raw) return null;
   try {
     return `${new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`).origin}/`;
+  } catch {
+    return null;
+  }
+}
+
+const TRACKING_PARAM = /^(utm_|gclid$|gbraid$|wbraid$|fbclid$|msclkid$|_ga|mc_|y_source$)/i;
+const HOME_PATH = /^\/*((index|home)(\.(html?|php|aspx?))?)?\/*$/i;
+
+/**
+ * The page the Maps listing points at, with tracking parameters and the fragment dropped. Null when
+ * that is just the front page (or there is no usable website), since enrichableUrl already covers it.
+ * For a franchise or multi-location business this is the page with the local phone, email and owner.
+ */
+export function listedPageUrl(p: { website: string | null; domain: string | null }): string | null {
+  if (!enrichableUrl(p)) return null;
+  const raw = p.website?.trim();
+  if (!raw) return null;
+  try {
+    const u = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+    u.hash = "";
+    for (const k of [...u.searchParams.keys()]) if (TRACKING_PARAM.test(k)) u.searchParams.delete(k);
+    return HOME_PATH.test(u.pathname) && !u.search ? null : u.href;
   } catch {
     return null;
   }

@@ -1,5 +1,6 @@
 import { ExternalLink, Megaphone } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { FacebookEditor } from "@/components/facebook-editor";
 import { adLibraryUrl, type FacebookSearchRecord } from "@/lib/facebook-search";
 import type { FacebookState } from "@/lib/offers";
 
@@ -21,11 +22,13 @@ const confidenceLabel = (c: number) => (c >= 0.8 ? "high" : "medium");
 
 /** The business's Facebook page: where it came from and why it was picked, ready for the Meta Ad Library check. */
 export function FacebookCard({
+  placeId,
   fb,
   search,
   country,
   action,
 }: {
+  placeId: string;
   fb: { pageUrl: string | null; pageId: string | null; matchSource: string | null; matchConfidence: number | null; state: FacebookState | null } | null;
   search: { record: FacebookSearchRecord; fetchedAt: Date } | null;
   country: string;
@@ -92,6 +95,8 @@ export function FacebookCard({
             </ul>
           </div>
         )}
+
+        <FacebookEditor placeId={placeId} pageUrl={fb?.pageUrl ?? null} pageId={fb?.pageId ?? null} />
 
         {!fb?.state && (
           <p className="text-xs text-muted-foreground">

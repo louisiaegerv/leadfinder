@@ -4,10 +4,12 @@ import { notFound } from "next/navigation";
 import { ExternalLink, Mail, MapPin, Phone, Star } from "lucide-react";
 import { AnimatedBar } from "@/components/animated-bar";
 import { CallLogPanel } from "@/components/call-log-panel";
+import { NoteCard } from "@/components/note-card";
 import { QueueBar } from "@/components/queue-bar";
 import { DetailTabs } from "@/components/detail-tabs";
 import { EnrichButton } from "@/components/enrich-button";
 import { EnrichmentCard } from "@/components/enrichment-card";
+import { AboutCard } from "@/components/about-card";
 import { FacebookCard } from "@/components/facebook-card";
 import { FadeIn } from "@/components/fade-in";
 import { OwnerEditor } from "@/components/owner-editor";
@@ -18,8 +20,10 @@ import { PlaceThumb } from "@/components/place-thumb";
 import { OfferChip, ScoreBadge } from "@/components/score-bits";
 import { CapacityTip, FitGateTip, GapsTip, ReachabilityTip } from "@/components/score-help";
 import { StageSelect } from "@/components/stage-select";
+import { WebsiteEditor } from "@/components/website-editor";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PLAN } from "@/lib/apify";
 import { parseTab } from "@/lib/detail-tab";
 import { enrichableUrl } from "@/lib/enrich";
 import { getEnrichment, placesInFlight } from "@/lib/enrich-db";
@@ -33,7 +37,9 @@ import { getQueue } from "@/lib/call-queue-db";
 import { parseQueueParams } from "@/lib/call-queue";
 import { getCallLog } from "@/lib/outreach-db";
 import { buildBrief } from "@/lib/pitch";
+import { estimateReviewFetchUsd } from "@/lib/geo";
 import { getNiche, getPlaceDetail } from "@/lib/queries";
+import { DEFAULT_MAX_REVIEWS, reviewFetchLines } from "@/lib/reviews";
 import { cn } from "@/lib/utils";
 
 function decode(id: string) {
@@ -122,7 +128,7 @@ export default async function PlaceDetailPage({
           </div>
           <div className="flex flex-wrap gap-2 text-sm">
             {p.phone && <a className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 hover:bg-muted" href={`tel:${p.phone}`}><Phone className="size-3.5" /> {p.phone}</a>}
-            {p.website && <a className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 hover:bg-muted" href={p.website} target="_blank" rel="noopener noreferrer"><ExternalLink className="size-3.5" /> {p.domain ?? "Website"}</a>}
+            <WebsiteEditor placeId={p.placeId} website={p.website} domain={p.domain} typedByYou={p.websiteManual} />
             <a className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 hover:bg-muted" href={`https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(p.placeId)}`} target="_blank" rel="noopener noreferrer"><ExternalLink className="size-3.5" /> Google Maps</a>
             <EnrichButton placeId={p.placeId} blockedReason={dnc} done={ownerSearch != null || enrichment != null} running={lookingUp} />
           </div>
@@ -140,9 +146,12 @@ export default async function PlaceDetailPage({
         initial={parseTab(sp.tab)}
         callCount={log.length}
         outreach={
+          <div className="space-y-4">
+          <NoteCard placeId={p.placeId} note={contact?.note ?? null} />
           <div className="grid items-start gap-4 lg:grid-cols-2">
             <CallLogPanel nicheId={niche.id} placeId={p.placeId} defaultOffer={np.leadOffer} entries={log} queue={qp.on ? { adjacent: qp.adjacent } : null} />
             <PitchBrief brief={brief} title={p.title} />
+          </div>
           </div>
         }
         score={
@@ -184,6 +193,7 @@ export default async function PlaceDetailPage({
         }
         details={
           <div className="space-y-4">
+            <AboutCard scan={scan} hasWebsite={enrichableUrl(p) != null} />
             <EnrichmentCard
               site={enrichment}
               search={ownerSearch}
@@ -217,6 +227,7 @@ export default async function PlaceDetailPage({
               </Card>
 
               <FacebookCard
+                placeId={p.placeId}
                 fb={fb ?? null}
                 search={facebookSearch}
                 country={(p.countryCode ?? "US").toUpperCase()}
@@ -227,7 +238,22 @@ export default async function PlaceDetailPage({
             <RecentReviews
               sample={p.reviewSample}
               sampledAt={p.reviewsSampledAt}
-              action={<EnrichButton placeId={p.placeId} method="reviews" blockedReason={dnc} done={p.reviewSample != null} running={lookingUp} />}
+              action={
+                <EnrichButton
+                  placeId={p.placeId}
+                  method="reviews"
+                  blockedReason={dnc}
+                  done={p.reviewSample != null}
+                  running={lookingUp}
+                  confirm={{
+                    lines: [
+                      ...reviewFetchLines({ sample: p.reviewSample, sampledAt: p.reviewsSampledAt, maxReviews: DEFAULT_MAX_REVIEWS }),
+                      "Apify bills only for the reviews it returns, so the cost can come in lower.",
+                    ],
+                    costUsd: estimateReviewFetchUsd(1, DEFAULT_MAX_REVIEWS, PLAN()),
+                  }}
+                />
+              }
             />
 
             <div className="grid items-start gap-4 md:grid-cols-2">

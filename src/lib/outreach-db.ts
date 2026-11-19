@@ -2,6 +2,7 @@ import { and, asc, desc, eq, isNotNull, isNull, notInArray, or, sql } from "driz
 import { db } from "@/db";
 import { contactLog, contacts, nichePlaces, niches, places } from "@/db/schema";
 import type { OfferKey, Stage } from "./offers";
+import { MAX_NOTE } from "./note-limits";
 import { MAX_OWNER_NAME } from "./owner-limits";
 import { TERMINAL_OUTCOMES, addDays, startOfDay, stageAfter, type Outcome } from "./outreach";
 
@@ -66,6 +67,25 @@ export function setManualOwner(placeId: string, name: string | null): { ownerNam
     .onConflictDoUpdate({ target: contacts.placeId, set: { ownerName: clean, source: "manual", confidence: 1, updatedAt: now } })
     .run();
   return { ownerName: clean };
+}
+
+/**
+ * Save your own note about a business, shared by every niche that tracks it. It is not a call: no log entry is made and
+ * the stage is untouched. Empty clears it. Owner, do-not-contact and the rest of the contact are left alone.
+ */
+export function setBusinessNote(placeId: string, note: string | null): { note: string | null } {
+  if (!db.select({ id: places.placeId }).from(places).where(eq(places.placeId, placeId)).get()) throw new Error("Business not found");
+  const clean = (note ?? "").replace(/\r\n/g, "\n").trim().slice(0, MAX_NOTE) || null;
+  const now = new Date();
+  if (clean === null) {
+    db.update(contacts).set({ note: null, updatedAt: now }).where(eq(contacts.placeId, placeId)).run();
+    return { note: null };
+  }
+  db.insert(contacts)
+    .values({ placeId, note: clean, updatedAt: now })
+    .onConflictDoUpdate({ target: contacts.placeId, set: { note: clean, updatedAt: now } })
+    .run();
+  return { note: clean };
 }
 
 export function getCallLog(placeId: string) {

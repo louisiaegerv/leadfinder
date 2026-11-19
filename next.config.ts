@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
   // scaffold default) would only add Suspense boundaries and stale hidden routes.
   cacheComponents: false,
   // Lets the dev server be opened from another device on the LAN.
-  allowedDevOrigins: ["192.168.1.169"],
+  allowedDevOrigins: ["192.168.1.169", "gaming-pc.tailc774aa.ts.net", "leadfinder"],
   turbopack: {
     rules: {
       "*.css": {

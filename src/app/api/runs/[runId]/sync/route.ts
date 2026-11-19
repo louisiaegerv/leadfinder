@@ -39,6 +39,10 @@ export async function POST(_req: Request, ctx: { params: Promise<{ runId: string
 
     if (status === "succeeded" && patch.datasetId) {
       const items = await fetchDataset(patch.datasetId);
+      // Another poll may have ingested this run while the dataset downloaded; it has already started the scan and searches.
+      if (db.select({ status: runs.status }).from(runs).where(eq(runs.id, id)).get()?.status === "ingested") {
+        return Response.json({ run: db.select().from(runs).where(eq(runs.id, id)).get() });
+      }
       ingestItems(id, items);
       startAutoScan(id); // free quick scan of the new websites, in the background
       await startPostRunSearches(id); // the paid searches, only if they were ticked for this run

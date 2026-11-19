@@ -37,7 +37,7 @@ export function ClassifyButton({ nicheId, gray }: { nicheId: number; gray: numbe
       if (d.error) toast.error("Stopped early", { description: d.error });
       else
         toast.success(`Classified ${d.classified} businesses`, {
-          description: `${d.fromCache} from cache, ${d.remaining} still undecided${d.costUsd ? `, ~$${d.costUsd.toFixed(4)}` : ""}`,
+          description: `${d.fromCache} from cache, ${d.remaining} still to judge${d.skipped ? `, ${d.skipped} left alone (nothing on their website to go on)` : ""}${d.costUsd ? `, ~$${d.costUsd.toFixed(4)}` : ""}`,
         });
       setOpen(false);
       router.refresh();
@@ -60,7 +60,7 @@ export function ClassifyButton({ nicheId, gray }: { nicheId: number; gray: numbe
           <DialogHeader>
             <DialogTitle>Classify undecided businesses?</DialogTitle>
             <DialogDescription>
-              The rules could not decide these {gray}. This sends up to {n} (name, categories, domain) to {info?.model ?? "the model"} on OpenRouter and
+              The rules could not decide these {gray}, and each has website text to go on (or a website that can still be scanned). Businesses with nothing to read stay undecided until a paid search or reader finds something. This sends up to {n} (name, categories, domain, and what their website says about them) to {info?.model ?? "the model"} on OpenRouter and
               labels each target, adjacent or noise with a reason. Results are cached, and anything you set by hand is never overwritten.
             </DialogDescription>
           </DialogHeader>

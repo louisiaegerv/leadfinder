@@ -24,9 +24,11 @@ const REL_LABEL: Record<string, string> = {
 export function PlacesFilters({
   basePath,
   areas,
+  tags = [],
 }: {
   basePath: string;
   areas: { id: number; name: string }[];
+  tags?: { tag: string; n: number }[];
 }) {
   const router = useRouter();
   const sp = useSearchParams();
@@ -43,7 +45,10 @@ export function PlacesFilters({
     router.replace(qs ? `${basePath}?${qs}` : basePath);
   }
 
-  const active = ["rel", "area", "offer", "stage", "q"].some((k) => sp.get(k));
+  const active = ["rel", "area", "offer", "stage", "tag", "q"].some((k) => sp.get(k));
+  const currentTag = sp.get("tag") ?? "";
+  // Keep a tag from the URL selectable even if nothing carries it any more.
+  const tagOptions = currentTag && !tags.some((t) => t.tag.toLowerCase() === currentTag.toLowerCase()) ? [...tags, { tag: currentTag, n: 0 }] : tags;
 
   return (
     <form
@@ -74,6 +79,14 @@ export function PlacesFilters({
           <option key={s} value={s}>{STAGE_LABEL[s]}</option>
         ))}
       </select>
+      {tagOptions.length > 0 && (
+        <select className={selectCls} value={tagOptions.find((t) => t.tag.toLowerCase() === currentTag.toLowerCase())?.tag ?? ""} onChange={(e) => go({ tag: e.target.value || null })} aria-label="Tag">
+          <option value="">Any tag</option>
+          {tagOptions.map((t) => (
+            <option key={t.tag} value={t.tag}>{t.tag} ({t.n})</option>
+          ))}
+        </select>
+      )}
       {areas.length > 1 && (
         <select className={selectCls} value={sp.get("area") ?? ""} onChange={(e) => go({ area: e.target.value || null })} aria-label="Area">
           <option value="">All areas</option>

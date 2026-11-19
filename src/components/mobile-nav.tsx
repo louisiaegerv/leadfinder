@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useSyncExternalStore } from "react";
-import { Database, Ellipsis, LayoutGrid, Moon, Phone, Plus, Sun, type LucideIcon } from "lucide-react";
+import { Database, Ellipsis, LayoutGrid, Moon, Palette, Phone, Plus, Sun, type LucideIcon } from "lucide-react";
+import { AppearanceDialog } from "@/components/appearance-dialog";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useTheme } from "@/components/use-theme";
 import { cn } from "@/lib/utils";
@@ -22,6 +23,7 @@ const rowClass = "flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left 
 export function MobileNav({ due }: { due: number }) {
   const path = usePathname();
   const [open, setOpen] = useState(false);
+  const [backgrounds, setBackgrounds] = useState(false);
   const { resolvedTheme, setTheme } = useTheme();
   // The real theme is only known in the browser, so show a neutral label until hydrated.
   const mounted = useSyncExternalStore(noopSubscribe, () => true, () => false);
@@ -73,9 +75,13 @@ export function MobileNav({ due }: { due: number }) {
               {dark ? <Sun className="size-5 text-muted-foreground" /> : <Moon className="size-5 text-muted-foreground" />}
               {dark ? "Light mode" : "Dark mode"}
             </button>
+            <button type="button" onClick={() => { setOpen(false); setBackgrounds(true); }} className={rowClass}>
+              <Palette className="size-5 text-muted-foreground" /> Backgrounds
+            </button>
           </div>
         </SheetContent>
       </Sheet>
+      <AppearanceDialog open={backgrounds} onOpenChange={setBackgrounds} />
     </>
   );
 }

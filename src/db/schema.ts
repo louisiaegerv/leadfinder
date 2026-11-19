@@ -5,6 +5,7 @@ import {
   real,
   primaryKey,
   index,
+  blob,
 } from "drizzle-orm/sqlite-core";
 import type { Playbook } from "@/lib/playbook";
 import type { OfferKey } from "@/lib/offers";
@@ -31,6 +32,8 @@ export const places = sqliteTable(
     phone: text("phone"),
     website: text("website"),
     domain: text("domain"),
+    /** Website typed in by hand: a later Google Maps run must not replace it. */
+    websiteManual: integer("website_manual", { mode: "boolean" }).notNull().default(false),
     totalScore: real("total_score"), // star rating
     reviewsCount: integer("reviews_count"),
     permanentlyClosed: integer("permanently_closed", { mode: "boolean" }),
@@ -188,6 +191,8 @@ export const contacts = sqliteTable("contacts", {
   source: text("source"),
   confidence: real("confidence"),
   doNotContact: integer("do_not_contact", { mode: "boolean" }).notNull().default(false),
+  /** Free-text note you typed about the business, written before or after any call. Not tied to a call log entry. */
+  note: text("note"),
   updatedAt: ts("updated_at").notNull().$defaultFn(now),
 });
 
@@ -242,6 +247,18 @@ export const enrichment = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.placeId, t.kind] })],
 );
+
+/**
+ * What a business's own website says: the text of its front page and About page, compressed (see page-text.ts). Kept apart
+ * from `enrichment` so reading it is a choice. It exists so keywords can be matched again without scanning the site again.
+ */
+export const pageTexts = sqliteTable("page_texts", {
+  placeId: text("place_id")
+    .primaryKey()
+    .references(() => places.placeId, { onDelete: "cascade" }),
+  text: blob("text", { mode: "buffer" }).notNull(),
+  fetchedAt: ts("fetched_at").notNull().$defaultFn(now),
+});
 
 /** Facebook page match + Ad Library state per business (pipeline stages 3 and 4). */
 export const facebookProfiles = sqliteTable("facebook_profiles", {

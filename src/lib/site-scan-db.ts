@@ -1,17 +1,19 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { contacts, enrichment, facebookProfiles, nichePlaces, placeRuns, places, settings } from "@/db/schema";
-import { enrichableUrl } from "./enrich";
+import { contacts, enrichment, facebookProfiles, nichePlaces, pageTexts, placeRuns, places, settings } from "@/db/schema";
+import { enrichableUrl, listedPageUrl } from "./enrich";
 import { facebookPage } from "./facebook-search";
 import { getEnrichment, resolveTargets, saveOwner, startEnrichment } from "./enrich-db";
+import { savePageText } from "./page-text-db";
 import { nicheFilterWhere, type PlaceFilters } from "./queries";
-import { rescoreNiche } from "./rescore";
+import { NO_EVIDENCE_REASON } from "./relevance";
+import { reclassifyNiche, rescoreNiche } from "./rescore";
 import { safeGet, scanSite, type Fetcher, type Network, type SiteScan } from "./site-scan";
 import type { ScanOutcome } from "./site-types";
 
 const KIND = "site_scan";
 
-/** Websites one click will scan. The scan is free, but each site is up to three requests. */
+/** Websites one click will scan. The scan is free, but each site is up to four requests. */
 export const MAX_SCAN_PER_CLICK = 80;
 const CONCURRENCY = 8;
 
@@ -82,13 +84,16 @@ export type ScanSummary = {
 /** Outcomes the second (paid) pass could plausibly fix. A dead domain or refused address it can't. */
 const NEEDS_BROWSER: ScanOutcome[] = ["blank", "blocked", "error"];
 
-function save(placeId: string, scan: SiteScan): { facebook: boolean; owner: boolean } {
+function save(placeId: string, full: SiteScan): { facebook: boolean; owner: boolean } {
+  // The page text is kept in a table of its own; the saved scan stays small.
+  const { pageText, ...scan } = full;
   return db.transaction((tx) => {
     const now = new Date();
     tx.insert(enrichment)
       .values({ placeId, kind: KIND, data: scan, source: "site-scan", confidence: null, fetchedAt: now })
       .onConflictDoUpdate({ target: [enrichment.placeId, enrichment.kind], set: { data: scan, source: "site-scan", fetchedAt: now } })
       .run();
+    savePageText(tx, placeId, pageText);
 
     // A Facebook link on the business's own site is a strong match for its page; never override one you set.
     let facebook = false;
@@ -123,18 +128,18 @@ export async function scanPlaces(placeIds: string[], opts: { fetcher?: Fetcher; 
     .where(inArray(places.placeId, placeIds))
     .all()
     .flatMap((r) => {
-      const url = enrichableUrl(r);
-      return url ? [{ placeId: r.placeId, url }] : [];
+      const root = enrichableUrl(r);
+      return root ? [{ placeId: r.placeId, root, url: listedPageUrl(r) ?? root }] : [];
     });
 
   const summary: ScanSummary = { scanned: 0, outcomes: {}, withSocials: 0, facebookFound: 0, ownersFound: 0, needsBrowser: [] };
   let next = 0;
   const worker = async () => {
     while (next < rows.length) {
-      const { placeId, url } = rows[next++];
+      const { placeId, url, root } = rows[next++];
       let scan: SiteScan;
       try {
-        scan = await scanSite(url, fetcher);
+        scan = await scanSite(url, fetcher, root);
       } catch {
         continue; // an unexpected parser failure on one site never stops the rest
       }
@@ -153,7 +158,10 @@ export async function scanPlaces(placeIds: string[], opts: { fetcher?: Fetcher; 
   const scannedIds = rows.map((r) => r.placeId);
   if (summary.scanned > 0 && scannedIds.length > 0) {
     const nicheIds = db.selectDistinct({ id: nichePlaces.nicheId }).from(nichePlaces).where(inArray(nichePlaces.placeId, scannedIds)).all();
-    for (const n of nicheIds) rescoreNiche(n.id);
+    for (const n of nicheIds) {
+      reclassifyNiche(n.id); // keywords on the site can settle a business the rules could not
+      rescoreNiche(n.id);
+    }
   }
   return summary;
 }
@@ -180,18 +188,48 @@ export type AutoScanState =
   | { state: "error"; message: string };
 
 const key = (runId: number) => `autoscan:${runId}`;
-const live = () => ((globalThis as unknown as { __autoScans?: Set<number> }).__autoScans ??= new Set<number>());
+const backfillKey = (nicheId: number) => `rescan:${nicheId}`;
+const live = () => ((globalThis as unknown as { __autoScans?: Set<string> }).__autoScans ??= new Set<string>());
 
-function setAutoScan(runId: number, value: AutoScanState) {
-  db.insert(settings).values({ key: key(runId), value }).onConflictDoUpdate({ target: settings.key, set: { value } }).run();
+function setTask(taskKey: string, value: AutoScanState) {
+  db.insert(settings).values({ key: taskKey, value }).onConflictDoUpdate({ target: settings.key, set: { value } }).run();
 }
 
-/** Progress of a run's automatic scan. One that says "scanning" but isn't running in this process was cut off by a restart. */
-export function getAutoScan(runId: number): AutoScanState | null {
-  const row = db.select().from(settings).where(eq(settings.key, key(runId))).get();
+/** Progress of a background scan. One that says "scanning" but isn't running in this process was cut off by a restart. */
+function readTask(taskKey: string): AutoScanState | null {
+  const row = db.select().from(settings).where(eq(settings.key, taskKey)).get();
   const v = row?.value as AutoScanState | undefined;
   if (!v) return null;
-  return v.state === "scanning" && !live().has(runId) ? { state: "interrupted", total: v.total, done: v.done } : v;
+  return v.state === "scanning" && !live().has(taskKey) ? { state: "interrupted", total: v.total, done: v.done } : v;
+}
+
+export const getAutoScan = (runId: number) => readTask(key(runId));
+
+/** Scan these businesses in the background, 50 at a time, recording progress under `taskKey`. Never throws. */
+function runScanTask(taskKey: string, ids: string[], opts: { fetcher?: Fetcher }): Promise<void> {
+  live().add(taskKey);
+  setTask(taskKey, { state: "scanning", total: ids.length, done: 0 });
+  return (async () => {
+    const t = { scanned: 0, read: 0, needsBrowser: 0, unreachable: 0, facebookFound: 0, ownersFound: 0 };
+    try {
+      for (let i = 0; i < ids.length; i += AUTO_CHUNK) {
+        const chunk = ids.slice(i, i + AUTO_CHUNK);
+        const s = await scanPlaces(chunk, { fetcher: opts.fetcher });
+        t.scanned += s.scanned;
+        t.read += s.outcomes.ok ?? 0;
+        t.needsBrowser += s.needsBrowser.length;
+        t.unreachable += (s.outcomes.dead ?? 0) + (s.outcomes.refused ?? 0) + (s.outcomes.not_html ?? 0);
+        t.facebookFound += s.facebookFound;
+        t.ownersFound += s.ownersFound;
+        setTask(taskKey, { state: "scanning", total: ids.length, done: Math.min(ids.length, i + chunk.length) });
+      }
+      setTask(taskKey, { state: "done", total: ids.length, ...t });
+    } catch (e) {
+      setTask(taskKey, { state: "error", message: e instanceof Error ? e.message : String(e) });
+    } finally {
+      live().delete(taskKey);
+    }
+  })();
 }
 
 /** Places this run surfaced that have a real website, no scan yet, and aren't do-not-contact. */
@@ -213,7 +251,7 @@ export function unscannedInRun(runId: number): string[] {
  * task (callers can ignore it; tests await it), or null if there was nothing to do.
  */
 export function startAutoScan(runId: number, opts: { fetcher?: Fetcher } = {}): Promise<void> | null {
-  if (!autoScanEnabled() || live().has(runId)) return null;
+  if (!autoScanEnabled() || live().has(key(runId))) return null;
   let ids: string[];
   try {
     ids = unscannedInRun(runId).slice(0, AUTO_SCAN_MAX);
@@ -221,30 +259,46 @@ export function startAutoScan(runId: number, opts: { fetcher?: Fetcher } = {}): 
     return null; // never let this get in the way of the run finishing
   }
   if (ids.length === 0) return null;
+  return runScanTask(key(runId), ids, opts);
+}
 
-  live().add(runId);
-  setAutoScan(runId, { state: "scanning", total: ids.length, done: 0 });
-  return (async () => {
-    const t = { scanned: 0, read: 0, needsBrowser: 0, unreachable: 0, facebookFound: 0, ownersFound: 0 };
-    try {
-      for (let i = 0; i < ids.length; i += AUTO_CHUNK) {
-        const chunk = ids.slice(i, i + AUTO_CHUNK);
-        const s = await scanPlaces(chunk, { fetcher: opts.fetcher });
-        t.scanned += s.scanned;
-        t.read += s.outcomes.ok ?? 0;
-        t.needsBrowser += s.needsBrowser.length;
-        t.unreachable += (s.outcomes.dead ?? 0) + (s.outcomes.refused ?? 0) + (s.outcomes.not_html ?? 0);
-        t.facebookFound += s.facebookFound;
-        t.ownersFound += s.ownersFound;
-        setAutoScan(runId, { state: "scanning", total: ids.length, done: Math.min(ids.length, i + chunk.length) });
-      }
-      setAutoScan(runId, { state: "done", total: ids.length, ...t });
-    } catch (e) {
-      setAutoScan(runId, { state: "error", message: e instanceof Error ? e.message : String(e) });
-    } finally {
-      live().delete(runId);
-    }
-  })();
+// ---------- refreshing old scans ----------
+
+/**
+ * Scans made before the scan kept what a site says about itself have no `services` at all (not even null), and a readable site
+ * whose page text was never saved needs one more pass to get it. A business never scanned has no scan to read, which counts the same.
+ */
+const NEEDS_READING = sql`(${enrichment.data} is null or json_type(${enrichment.data}, '$.services') is null or (json_extract(${enrichment.data}, '$.outcome') = 'ok' and ${pageTexts.placeId} is null))`;
+
+/**
+ * Businesses in a niche, best score first, whose site has never been scanned or whose scan is outdated, and that can be
+ * scanned. Left out: do-not-contact, and noise a website cannot change (a chain, an excluded category, or a decision made by
+ * the model or by you). Noise from having no matching category or keyword stays in, because a keyword on its site can rescue it.
+ */
+export function findScansToRefresh(nicheId: number): string[] {
+  const rescuable = and(eq(nichePlaces.relevance, "noise"), or(isNull(nichePlaces.relevanceSource), eq(nichePlaces.relevanceSource, "rules")), eq(nichePlaces.relevanceReason, NO_EVIDENCE_REASON));
+  return db
+    .select({ placeId: places.placeId, website: places.website, domain: places.domain, dnc: contacts.doNotContact })
+    .from(nichePlaces)
+    .innerJoin(places, eq(places.placeId, nichePlaces.placeId))
+    .leftJoin(enrichment, and(eq(enrichment.placeId, nichePlaces.placeId), eq(enrichment.kind, KIND)))
+    .leftJoin(pageTexts, eq(pageTexts.placeId, nichePlaces.placeId))
+    .leftJoin(contacts, eq(contacts.placeId, nichePlaces.placeId))
+    .where(and(eq(nichePlaces.nicheId, nicheId), NEEDS_READING, or(isNull(nichePlaces.relevance), ne(nichePlaces.relevance, "noise"), rescuable)))
+    .orderBy(sql`${nichePlaces.score} is null`, desc(nichePlaces.score))
+    .all()
+    .filter((r) => !r.dnc && enrichableUrl(r))
+    .map((r) => r.placeId);
+}
+
+export const getBackfill = (nicheId: number) => readTask(backfillKey(nicheId));
+
+/** Read the websites that need it in a niche, in the background. Free. Null if one is already running or there is nothing to do. */
+export function startBackfill(nicheId: number, opts: { fetcher?: Fetcher } = {}): { total: number; task: Promise<void> } | null {
+  if (live().has(backfillKey(nicheId))) return null;
+  const ids = findScansToRefresh(nicheId);
+  if (ids.length === 0) return null;
+  return { total: ids.length, task: runScanTask(backfillKey(nicheId), ids, opts) };
 }
 
 // ---------- reading ----------

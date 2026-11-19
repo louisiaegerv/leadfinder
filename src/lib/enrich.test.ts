@@ -9,6 +9,7 @@ import {
   enrichableUrl,
   estimateEnrichCostUsd,
   hostOf,
+  listedPageUrl,
   matchTargets,
   maxBusinessesForCap,
   parseItem,
@@ -24,6 +25,23 @@ describe("enrichableUrl", () => {
     expect(enrichableUrl({ website: "https://www.facebook.com/acme", domain: "facebook.com" })).toBeNull();
     expect(enrichableUrl({ website: "https://www.yelp.com/biz/acme", domain: "yelp.com" })).toBeNull();
     expect(enrichableUrl({ website: null, domain: null })).toBeNull();
+  });
+});
+
+describe("listedPageUrl", () => {
+  const d = "acme.com";
+  it("keeps the deep page the listing points at, minus tracking noise", () => {
+    expect(listedPageUrl({ website: "https://acme.com/tx/concrete-duncanville/", domain: d })).toBe("https://acme.com/tx/concrete-duncanville/");
+    expect(listedPageUrl({ website: "https://acme.com/locations/dallas?utm_source=gmb&utm_medium=organic&y_source=1_abc#top", domain: d })).toBe("https://acme.com/locations/dallas");
+    expect(listedPageUrl({ website: "https://acme.com/shop?id=7&utm_source=gmb", domain: d })).toBe("https://acme.com/shop?id=7");
+  });
+  it("is null when the listing is just the front page, or there is nothing to read", () => {
+    expect(listedPageUrl({ website: "https://acme.com/", domain: d })).toBeNull();
+    expect(listedPageUrl({ website: "https://acme.com/?utm_source=gmb", domain: d })).toBeNull();
+    expect(listedPageUrl({ website: "https://acme.com/#/home", domain: d })).toBeNull();
+    expect(listedPageUrl({ website: "https://acme.com/index.html", domain: d })).toBeNull();
+    expect(listedPageUrl({ website: null, domain: d })).toBeNull();
+    expect(listedPageUrl({ website: "https://www.facebook.com/acme/about", domain: "facebook.com" })).toBeNull();
   });
 });
 

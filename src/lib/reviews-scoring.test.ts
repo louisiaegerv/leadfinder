@@ -106,7 +106,7 @@ describe("reading reviews from an actor item", () => {
 
   it("keeps a sample when the item has reviews, and null when the run did not ask for them", () => {
     expect(normalizeItem(item({ reviews: [review] }))!.place.reviewSample).toEqual([
-      { id: "a", stars: 5, at: "2026-08-11T00:55:19.000Z", text: "Great floor", replied: true },
+      { id: "a", stars: 5, at: "2026-08-11T00:55:19.000Z", text: "Great floor", replied: true, reply: "Thanks!" },
     ]);
     expect(normalizeItem(item({}))!.place.reviewSample).toBeNull();
     expect(normalizeItem(item({ reviews: [] }))!.place.reviewSample).toEqual([]);

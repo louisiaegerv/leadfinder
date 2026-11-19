@@ -5,8 +5,19 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Globe, Loader2, Megaphone, ScanSearch, Star, UserSearch } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ENRICH_PRICE_USD } from "@/lib/enrich";
 import { showScanResult } from "@/components/scan-toast";
+
+/** What to tell you before a paid lookup runs. Pass it to make the button ask first. */
+export type ConfirmDetails = {
+  /** Plain sentences about what will happen. */
+  lines: string[];
+  /** The most it can cost, in dollars. Null when it is free. */
+  costUsd: number | null;
+};
+
+const money = (n: number) => `$${n < 0.01 ? n.toFixed(4) : n.toFixed(3)}`;
 
 /**
  * One-business lookups. "scan" reads the website directly with plain HTTP (free): social links, emails,
@@ -21,6 +32,7 @@ export function EnrichButton({
   blockedReason,
   done,
   running,
+  confirm,
 }: {
   placeId: string;
   method?: "scan" | "search" | "facebook" | "reviews" | "site";
@@ -30,9 +42,12 @@ export function EnrichButton({
   /** Already looked up once, so the button offers to do it again. */
   done: boolean;
   running: boolean;
+  /** When set, clicking shows these details and waits for a yes before spending anything. */
+  confirm?: ConfirmDetails;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [asking, setAsking] = useState(false);
 
   async function start() {
     setBusy(true);
@@ -69,10 +84,38 @@ export function EnrichButton({
   const label =
     method === "reviews" ? (done ? "Refresh reviews" : "Fetch reviews") : method === "facebook" ? (done ? "Search again" : "Find Facebook page") : method === "scan" ? (done ? "Scan again" : "Scan website") : method === "search" ? (done ? "Search again" : "Find owner") : done ? "Re-read website" : "Paid website reader";
 
+  async function confirmed() {
+    await start();
+    setAsking(false);
+  }
+
   return (
-    <Button variant="outline" size="sm" onClick={start} disabled={working || blockedReason != null} title={blockedReason ?? tip} className="h-[30px]">
-      {working ? <Loader2 className="animate-spin" /> : <Icon />}
-      {working ? (method === "scan" ? "Scanning…" : "Working…") : label}
-    </Button>
+    <>
+      <Button variant="outline" size="sm" onClick={confirm ? () => setAsking(true) : start} disabled={working || blockedReason != null} title={blockedReason ?? tip} className="h-[30px]">
+        {working ? <Loader2 className="animate-spin" /> : <Icon />}
+        {working ? (method === "scan" ? "Scanning…" : "Working…") : label}
+      </Button>
+      {confirm && (
+        <Dialog open={asking} onOpenChange={(o) => !busy && setAsking(o)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{label}?</DialogTitle>
+              <DialogDescription>{confirm.costUsd == null ? "This is free." : `This costs up to about ${money(confirm.costUsd)}.`}</DialogDescription>
+            </DialogHeader>
+            <ul className="list-disc space-y-1.5 pl-5 text-sm">
+              {confirm.lines.map((l) => (
+                <li key={l}>{l}</li>
+              ))}
+            </ul>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setAsking(false)} disabled={busy}>Cancel</Button>
+              <Button onClick={confirmed} disabled={busy}>
+                {busy ? <Loader2 className="animate-spin" /> : <Icon />} {label}{confirm.costUsd != null ? ` · up to ${money(confirm.costUsd)}` : ""}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+    </>
   );
 }

@@ -2,7 +2,9 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { enrichment, facebookProfiles, nichePlaces, niches, places, settings } from "@/db/schema";
 import { playbookSchema } from "./playbook";
+import { loadPageText } from "./page-text-db";
 import { classifyByRules } from "./relevance";
+import { profileRow, scanRow, siteTextSql, siteUnreadSql } from "./site-text";
 import { SCORING_VERSION, buildPeerLookup, scorePlace, type ScoreInput } from "./scoring";
 import type { SiteSignals } from "./site-types";
 
@@ -36,7 +38,7 @@ export function ensureScored(): void {
 }
 
 /**
- * After a playbook edit, re-run the category/keyword rules over rows whose
+ * After a playbook edit or a website scan, re-run the category/keyword rules over rows whose
  * relevance came from rules (or is undecided). LLM and user decisions are kept.
  */
 export function reclassifyNiche(nicheId: number): number {
@@ -50,16 +52,22 @@ export function reclassifyNiche(nicheId: number): number {
       title: places.title,
       categories: places.categories,
       domain: places.domain,
+      website: places.website,
+      siteText: siteTextSql,
+      siteUnread: siteUnreadSql,
     })
     .from(nichePlaces)
     .innerJoin(places, eq(places.placeId, nichePlaces.placeId))
+    .leftJoin(scanRow, and(eq(scanRow.placeId, nichePlaces.placeId), eq(scanRow.kind, "site_scan")))
+    .leftJoin(profileRow, and(eq(profileRow.placeId, nichePlaces.placeId), eq(profileRow.kind, "profile")))
     .where(eq(nichePlaces.nicheId, nicheId))
     .all()
     .filter((r) => r.src === null || r.src === "rules");
+  const pageTexts = loadPageText(rows.map((r) => r.placeId));
 
   db.transaction((tx) => {
     for (const r of rows) {
-      const rel = classifyByRules(r, pb);
+      const rel = classifyByRules({ ...r, pageText: pageTexts.get(r.placeId) ?? null, siteUnread: r.siteUnread === 1 }, pb);
       tx.update(nichePlaces)
         .set({ relevance: rel.label, relevanceReason: rel.reason, relevanceSource: rel.label ? "rules" : null })
         .where(and(eq(nichePlaces.nicheId, nicheId), eq(nichePlaces.placeId, r.placeId)))

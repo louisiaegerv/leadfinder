@@ -57,7 +57,7 @@ export default async function OutreachPage({ searchParams }: { searchParams: Pro
       </div>
 
       {picked && (
-        <section className="space-y-4 rounded-xl border bg-card p-4" aria-label="Ready to call">
+        <section className="space-y-4 rounded-xl border bg-card p-4 photo:bg-card/50 photo:shadow-lg photo:backdrop-blur-md photo:backdrop-saturate-150" aria-label="Ready to call">
           <div>
             <h2 className="text-lg font-semibold">Ready to call</h2>
             <p className="text-sm text-muted-foreground">

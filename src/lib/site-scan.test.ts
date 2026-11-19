@@ -130,6 +130,82 @@ describe("parsePage", () => {
   });
 });
 
+describe("forms added by JavaScript", () => {
+  const withBody = (body: string, head = "") => parsePage(`<html><head><title>Contact</title>${head}</head><body><p>${PAD}</p>${body}</body></html>`, "https://a.com/").signals.hasForm;
+
+  it("counts an empty lead-capture frame, as on a Duda site using the Hearth widget", () => {
+    expect(withBody(`<div class="dmCustomHtml"><iframe id="hearth-lead-capture-widget" style="width:100%" title="Embedded content"></iframe></div>`)).toBe(true);
+    expect(withBody(`<iframe title="Request a quote" src="about:blank"></iframe>`)).toBe(true);
+  });
+
+  it("counts known quote-form vendors loaded by script", () => {
+    expect(withBody("", `<script src="https://widget.gethearth.com/script.js"></script>`)).toBe(true);
+    expect(withBody(`<iframe src="https://tally.so/embed/abc"></iframe>`)).toBe(true);
+    expect(withBody(`<iframe src="https://docs.google.com/forms/d/e/1/viewform?embedded=true"></iframe>`)).toBe(true);
+  });
+
+  it("does not mistake a map or video for a form, even on a contact page", () => {
+    expect(withBody(`<iframe title="Contact us map" src="https://www.google.com/maps/embed?pb=!1m18"></iframe>`)).toBe(false);
+    expect(withBody(`<iframe title="Our quote story" src="https://www.youtube.com/embed/x"></iframe>`)).toBe(false);
+    expect(withBody(`<iframe title="Embedded content"></iframe>`)).toBe(false);
+  });
+});
+
+describe("what the site says about itself", () => {
+  const COPY = "We install epoxy, polished concrete and metallic floors for garages and shops across Houston.";
+  const doc = (body: string, head = "") => `<html><head><title>Acme</title>${head}</head><body>${body}</body></html>`;
+
+  it("reads the meta description, the headline and the first real paragraphs", () => {
+    const p = parsePage(
+      doc(
+        `<nav><p>${COPY} (menu blurb that must not count)</p></nav><h1>  Houston Epoxy   Floors </h1><p>Short.</p><p>We use cookies to improve your experience on this website, see the privacy policy.</p><p>${COPY}</p><p>${COPY}</p><p>Second paragraph with enough words in it to be read as copy and not as a button label.</p><footer><p>${COPY} (footer)</p></footer>`,
+        `<meta name="description" content="  Garage floor coatings &amp; polished concrete in Houston ">`,
+      ),
+      "https://a.com/",
+    );
+    expect(p.description).toBe("Garage floor coatings & polished concrete in Houston");
+    expect(p.heading).toBe("Houston Epoxy Floors");
+    expect(p.about).toBe(`${COPY} Second paragraph with enough words in it to be read as copy and not as a button label.`);
+  });
+
+  it("falls back to the social-share description and trims long text", () => {
+    const long = "x".repeat(500);
+    const p = parsePage(doc(`<p>${long}</p>`, `<meta property="og:description" content="${long}">`), "https://a.com/");
+    expect(p.description!.length).toBe(300);
+    expect(p.description!.endsWith("…")).toBe(true);
+    expect(p.about!.length).toBe(400);
+  });
+
+  it("keeps section headings and menu links, minus generic ones, as the services it lists", () => {
+    const p = parsePage(
+      doc(`<header><nav><a href="/">Home</a><a href="/epoxy">Epoxy Floors</a><a href="/contact">Contact Us</a><a href="/p">Polyaspartic Coatings</a></nav></header><h2>Garage Floor Coatings</h2><h3>Epoxy Floors</h3><h2>x</h2><p>${COPY}</p><footer><h3>Hours</h3></footer>`),
+      "https://a.com/",
+    );
+    expect(p.services).toBe("Garage Floor Coatings · Epoxy Floors · Polyaspartic Coatings");
+  });
+
+  it("keeps a menu link that lists several services, however long it runs, but not a whole sentence", () => {
+    const p = parsePage(
+      doc(`<nav><a href="/a">Polished Concrete, Epoxy Flooring, Strip and Wax VCT</a><a href="/b">Post Construction Cleaning/Window Cleaning</a><a href="/c">${"We have been serving the area with pride for many years and we love it ".repeat(3)}</a></nav><p>${COPY}</p>`),
+      "https://a.com/",
+    );
+    expect(p.services).toBe("Polished Concrete, Epoxy Flooring, Strip and Wax VCT · Post Construction Cleaning/Window Cleaning");
+  });
+
+  it("is null when the page says nothing", () => {
+    expect(parsePage(doc("<div>hi</div>"), "https://a.com/")).toMatchObject({ description: null, heading: null, services: null, about: null });
+  });
+
+  it("prefers the About page's copy over the front page's", async () => {
+    const ok = (html: string, url: string): Fetched => ({ status: 200, finalUrl: url, contentType: "text/html", html });
+    const home = doc(`<a href="/about">About us</a><p>${PAD}</p>`);
+    const about = doc(`<p>${COPY}</p>`);
+    const s = await scanSite("https://acme-epoxy.com/", async (u) => (u.endsWith("/about") ? ok(about, u) : ok(home, u)));
+    expect(s.about).toBe(COPY);
+    expect(s.description).toBeNull();
+  });
+});
+
 describe("classifyFetch", () => {
   const f = (over: Partial<Fetched>): Fetched => ({ status: 200, finalUrl: "https://a.com/", contentType: "text/html", html: "x", ...over });
   it("names why a page could not be read", () => {
@@ -179,6 +255,69 @@ describe("scanSite", () => {
     expect(await scanSite(BASE, async (u) => ({ status: 403, finalUrl: u, contentType: "text/html", html: "Forbidden" }))).toMatchObject({ outcome: "blocked", status: 403 });
     expect(await scanSite(BASE, async (u) => ({ status: 0, finalUrl: u, contentType: "", html: "", error: "ENOTFOUND" }))).toMatchObject({ outcome: "dead", error: "ENOTFOUND" });
     expect(await scanSite(BASE, async (u) => ok("<html><head><title>Just a moment...</title></head><body>Checking your browser before accessing</body></html>", u))).toMatchObject({ outcome: "blocked" });
+  });
+
+  it("hands back the text of the front page and the About page, not Contact, and nothing for a site it could not read", async () => {
+    const fetcher: Fetcher = async (u) =>
+      u === BASE
+        ? ok(page(`<a href="/about">About us</a><a href="/contact">Contact</a><p>Front: polished concrete. ${PAD}</p>`), u)
+        : u.endsWith("/about")
+          ? ok(page(`<p>About: epoxy moisture barriers. ${PAD}</p>`), u)
+          : ok(page(`<p>Contact: ring the office. ${PAD}</p>`), u);
+    const s = await scanSite(BASE, fetcher);
+    expect(s.pageText).toContain("Front: polished concrete.");
+    expect(s.pageText).toContain("About: epoxy moisture barriers.");
+    expect(s.pageText).not.toContain("Contact: ring the office");
+    expect(s.pageText).not.toMatch(/<|script/);
+
+    const blank = await scanSite(BASE, async (u) => ok("<html><body><div id=root></div></body></html>", u));
+    expect(blank.outcome).toBe("blank");
+    expect(blank.pageText).toBeUndefined();
+  });
+
+  it("keeps a very long page to a sensible length", async () => {
+    const long = page(`<p>${"floor ".repeat(10_000)}</p>`);
+    const s = await scanSite(BASE, async (u) => ok(long, u));
+    expect(s.pageText!.length).toBeLessThanOrEqual(12_000);
+  });
+
+  describe("with a listed page that is not the front page", () => {
+    const LISTED = "https://acme-epoxy.com/tx/duncanville/";
+    const local = page(`<h1>Duncanville</h1><a href="tel:2145550199">call</a><a href="https://facebook.com/acme.duncanville">f</a><p>${PAD}</p>`);
+    const rootHome = page(`<a href="/about">About us</a><a href="https://facebook.com/acme">f</a><a href="mailto:hq@acme-epoxy.com">mail</a><p>${PAD}</p>`);
+
+    it("reads the listed page first and lets the front page fill gaps without overriding it", async () => {
+      const seen: string[] = [];
+      const s = await scanSite(LISTED, async (u) => (seen.push(u), u === LISTED ? ok(local, u) : u === BASE ? ok(rootHome, u) : ok(about, u)), BASE);
+      expect(seen).toEqual([LISTED, BASE, "https://acme-epoxy.com/about"]);
+      expect(s).toMatchObject({ url: LISTED, outcome: "ok", heading: "Duncanville" });
+      expect(s.socials.facebook).toBe("https://facebook.com/acme.duncanville"); // the local page wins
+      expect(s.phones).toEqual(["2145550199"]);
+      expect(s.emails).toContain("hq@acme-epoxy.com"); // from the front page
+      expect(s.pages.map((p) => p.url)).toEqual(seen);
+    });
+
+    it("falls back to the front page when the listed page is gone, so a stale link does not make a live site look dead", async () => {
+      const s = await scanSite(LISTED, async (u) => (u === LISTED ? { status: 404, finalUrl: u, contentType: "text/html", html: "Not found" } : ok(rootHome, u)), BASE);
+      expect(s).toMatchObject({ url: BASE, outcome: "ok", status: 200 });
+      expect(s.pages[0]).toEqual({ url: LISTED, status: 404 });
+    });
+
+    it("reports the listed page's failure when the front page is no better, and does not retry a dead domain", async () => {
+      const gone = (u: string): Fetched => ({ status: 404, finalUrl: u, contentType: "text/html", html: "Not found" });
+      expect(await scanSite(LISTED, async (u) => gone(u), BASE)).toMatchObject({ url: LISTED, outcome: "dead", status: 404 });
+
+      let calls = 0;
+      const dead = await scanSite(LISTED, async (u) => (calls++, { status: 0, finalUrl: u, contentType: "", html: "", error: "ENOTFOUND" }), BASE);
+      expect(dead.outcome).toBe("dead");
+      expect(calls).toBe(1);
+    });
+
+    it("follows the front page's About link when the listed page has no menu", async () => {
+      const seen: string[] = [];
+      await scanSite(LISTED, async (u) => (seen.push(u), u === LISTED ? ok(page(`<p>${PAD}</p>`), u) : u === BASE ? ok(rootHome, u) : ok(about, u)), BASE);
+      expect(seen).toContain("https://acme-epoxy.com/about");
+    });
   });
 
   it("a failing About page does not spoil what the front page gave", async () => {

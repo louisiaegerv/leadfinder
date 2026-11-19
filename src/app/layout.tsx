@@ -2,11 +2,14 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
+import { AppearanceProvider } from "@/components/appearance-provider";
+import { BackgroundLayer } from "@/components/background-layer";
 import { EnrichPoller } from "@/components/enrich-poller";
 import { MobileNav } from "@/components/mobile-nav";
 import { Sidebar } from "@/components/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import { THEME_INIT_SCRIPT } from "@/components/use-theme";
+import { getAppearance } from "@/lib/appearance";
 import { getActiveRuns } from "@/lib/enrich-db";
 import { countDueFollowUps } from "@/lib/outreach-db";
 
@@ -29,10 +32,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" suppressHydrationWarning className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
       <body className="flex min-h-full">
         <Script id="theme-init" strategy="beforeInteractive">{THEME_INIT_SCRIPT}</Script>
-        <Sidebar />
-        {/* Bottom padding on phones keeps the last row clear of the tab bar. */}
-        <main className="min-w-0 flex-1 p-6 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:p-8">{children}</main>
-        <MobileNav due={countDueFollowUps()} />
+        <AppearanceProvider initial={getAppearance()}>
+          <Sidebar />
+          <BackgroundLayer region="main" />
+          {/* Bottom padding on phones keeps the last row clear of the tab bar. */}
+          <main className="min-w-0 flex-1 p-6 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:p-8">{children}</main>
+          <MobileNav due={countDueFollowUps()} />
+        </AppearanceProvider>
         <Toaster richColors position="bottom-right" mobileOffset={{ bottom: "4.5rem" }} />
         <EnrichPoller runIds={getActiveRuns().map((r) => r.id)} />
       </body>

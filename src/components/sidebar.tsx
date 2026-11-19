@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { Database, Phone, Plus, Radar } from "lucide-react";
+import { AppearanceButton } from "@/components/appearance-dialog";
+import { BackgroundLayer } from "@/components/background-layer";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { countDueFollowUps } from "@/lib/outreach-db";
 import { listNiches } from "@/lib/queries";
@@ -8,12 +10,18 @@ export function Sidebar() {
   const all = listNiches();
   const due = countDueFollowUps();
   return (
-    <aside className="hidden w-64 shrink-0 flex-col border-r bg-muted/30 md:flex">
+    // Pinned to the window and as tall as it, so a background picture fills the sidebar instead of stretching down the whole page.
+    // `isolate` lets the background sit above this panel's own colour but below its content.
+    <aside className="sticky isolate top-0 hidden h-svh w-64 shrink-0 flex-col self-start border-r bg-muted/30 md:flex">
+      <BackgroundLayer region="sidebar" />
       <div className="flex items-center justify-between pr-3">
         <Link href="/" className="flex items-center gap-2 px-5 py-4 text-lg font-semibold">
           <Radar className="size-5 text-blue-600 dark:text-blue-400" /> Leadfinder
         </Link>
-        <ThemeToggle />
+        <div className="flex items-center">
+          <AppearanceButton />
+          <ThemeToggle />
+        </div>
       </div>
       <div className="space-y-0.5 px-2 pb-3">
         <Link href="/outreach" className="flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium hover:bg-muted">

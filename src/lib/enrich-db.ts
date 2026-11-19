@@ -14,6 +14,7 @@ import {
   type Profile,
 } from "./enrich";
 import { nicheFilterWhere, type PlaceFilters } from "./queries";
+import { reclassifyNiche, rescoreNiche } from "./rescore";
 
 export type Target = { placeId: string; url: string };
 
@@ -190,6 +191,14 @@ export async function syncEnrichment(id: number) {
     const datasetId = remote.defaultDatasetId ?? run.datasetId;
     const items = datasetId ? await fetchDataset(datasetId) : [];
     result = applyResults(run.targets, items, ENRICH_ACTOR());
+    // What the reader found can settle a business the rules could not, in every niche that tracks it.
+    if (result.enriched > 0) {
+      const niches = db.selectDistinct({ id: nichePlaces.nicheId }).from(nichePlaces).where(inArray(nichePlaces.placeId, run.targets.map((t) => t.placeId))).all();
+      for (const n of niches) {
+        reclassifyNiche(n.id);
+        rescoreNiche(n.id);
+      }
+    }
   }
   db.update(enrichmentRuns)
     .set({

@@ -52,6 +52,22 @@ export function facebookPage(url: string): FacebookPage | null {
   return { url: root(parts[0]), pageId: /^\d{8,}$/.test(parts[0]) ? parts[0] : null };
 }
 
+/**
+ * A Facebook page typed in by hand: a link, a page id, or both. A link may be pasted without "https://" and is reduced to
+ * the page root; a page id alone becomes a profile.php link, which Facebook resolves to the page. Both empty means "none".
+ * Throws a message fit to show when what was typed is not a Facebook page.
+ */
+export function parseManualFacebook(urlInput: string | null | undefined, idInput: string | null | undefined): FacebookPage | null {
+  const url = (urlInput ?? "").trim();
+  const id = (idInput ?? "").trim();
+  if (!url && !id) return null;
+  if (id && !/^\d{5,25}$/.test(id)) throw new Error("The page ID is a number, usually 15 digits");
+  if (!url) return { url: `https://www.facebook.com/profile.php?id=${id}`, pageId: id };
+  const page = facebookPage(/^[a-z][a-z0-9+.-]*:\/\//i.test(url) ? url : `https://${url}`);
+  if (!page) throw new Error("That does not look like a link to a Facebook page");
+  return { url: page.url, pageId: id || page.pageId };
+}
+
 /** A convenience link to this page's ads in the Meta Ad Library. Needs the numeric page id. */
 export function adLibraryUrl(pageId: string, country = "US"): string {
   return `https://www.facebook.com/ads/library/?active_status=all&ad_type=all&country=${encodeURIComponent(country)}&view_all_page_id=${encodeURIComponent(pageId)}&search_type=page&media_type=all`;

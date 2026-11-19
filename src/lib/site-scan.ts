@@ -5,6 +5,7 @@ import net from "node:net";
 import zlib from "node:zlib";
 import * as cheerio from "cheerio";
 import { OWNERISH } from "./enrich";
+import { PAGE_TEXT_MAX } from "./page-text";
 import type { ScanOutcome, SiteSignals } from "./site-types";
 
 /**
@@ -246,7 +247,10 @@ const BUILDERS: [string, RegExp][] = [
   ["shopify", /cdn\.shopify\.com/i],
   ["wordpress", /wp-content|wp-includes/i],
 ];
-const FORM_EMBEDS = /jotform|hsforms|js\.hsforms|typeform\.com|wufoo|formstack|leadconnectorhq\.com\/widget\/form|gravityforms|wpforms|formspree|cognitoforms|123formbuilder/i;
+const FORM_EMBEDS = /jotform|hsforms|js\.hsforms|typeform\.com|wufoo|formstack|leadconnectorhq\.com\/widget\/form|gravityforms|wpforms|formspree|cognitoforms|123formbuilder|gethearth\.com|hearth-lead-capture|tally\.so|forms\.gle|docs\.google\.com\/forms|paperform\.co|fillout\.com|forms\.zohopublic|forms\.office\.com|getjobber\.com\/(client_hubs|work_request)/i;
+// Many sites drop their quote form in with JavaScript, so the page source holds only an empty frame. The frame's own name usually says what it is.
+const LEAD_FRAME = /form|lead|quote|estimate|capture|contact|booking|schedule/i;
+const NOT_A_FORM_FRAME = /google\.com\/maps|maps\.google|youtube|vimeo|facebook\.com\/plugins|instagram\.com/i;
 const BOOKING = /calendly\.com|acuityscheduling\.com|squareup\.com\/appointments|setmore\.com|booksy\.com|housecallpro\.com|getjobber\.com|youcanbook\.me|vcita\.com|simplybook|appointlet/i;
 // A bot-challenge page says so in its title or visible text. The word "captcha" alone proves nothing: normal pages carry reCAPTCHA on their contact forms.
 const CHALLENGE_TITLE = /just a moment|attention required|access denied|are you a robot|verify you are (a )?human|security check|ddos protection|checking your browser|one more step/i;
@@ -299,7 +303,17 @@ function readLd($: cheerio.CheerioAPI): LdInfo {
 
 export type PageInfo = {
   title: string | null;
+  /** The page's own summary of the business: its meta or social-share description. */
+  description: string | null;
+  /** The main headline. */
+  heading: string | null;
+  /** Section headings and menu links, which is usually where a site lists the work it does. */
+  services: string | null;
+  /** The first few real sentences of body copy, with menus, footers and cookie notices left out. */
+  about: string | null;
   textLen: number;
+  /** All the text people see on the page, for keyword matching. Not part of the saved scan (see SiteScan.pageText). */
+  text: string;
   challenge: boolean;
   socials: Partial<Record<Network, string>>;
   emails: string[];
@@ -309,6 +323,18 @@ export type PageInfo = {
   people: { name: string; role: string }[];
   signals: Omit<SiteSignals, "outcome" | "https" | "facebookUrl">;
 };
+
+const DESCRIPTION_MAX = 300;
+const HEADING_MAX = 120;
+const ABOUT_MAX = 400;
+const SERVICES_MAX = 500;
+// A menu link often lists several services in one ("Polished Concrete, Epoxy Flooring, Strip and Wax VCT"), so these are generous.
+const SERVICE_HEADING_MAX = 120;
+const SERVICE_LINK_MAX = 120;
+const GENERIC_LINK = /^(home|about( us)?|contact( us)?|menu|blog|gallery|search|log ?in|sign ?in|call( us)?( now| today)?|get a (free )?(quote|estimate)|free (quote|estimate)|reviews?|testimonials?|faqs?|careers?|\d.*)$/i;
+const NOT_COPY = /cookie|privacy policy|all rights reserved|terms (of|and)|javascript|subscribe|sign up/i;
+
+const clip = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s);
 
 /** Pull everything useful out of one page's HTML. `baseUrl` is where it was fetched from. */
 export function parsePage(html: string, baseUrl: string): PageInfo {
@@ -372,6 +398,9 @@ export function parsePage(html: string, baseUrl: string): PageInfo {
   const pick = (text: RegExp, path: RegExp) =>
     links.find((l) => sameSite(l.href) && !l.href.includes("#") && !isHome(l.href) && (text.test(l.text) || path.test(new URL(l.href).pathname)))?.href ?? null;
 
+  const metaText = (sel: string) => squeeze($(sel).first().attr("content") ?? "");
+  const description = clip(metaText('meta[name="description"]') || metaText('meta[property="og:description"]'), DESCRIPTION_MAX) || null;
+
   // The text people see: scripts, styles and the like removed. The page source is still checked below for scripts and widgets.
   $("script, style, noscript, template, svg").remove();
   // Neighbouring elements must not run together ("Email" + "sales@x.com" would read as "Emailsales@x.com").
@@ -383,6 +412,30 @@ export function parsePage(html: string, baseUrl: string): PageInfo {
     const c = cleanEmail(e);
     if (c) emails.add(c);
   }
+
+  const heading = clip(squeeze($("h1").first().text()), HEADING_MAX) || null;
+  const seenService = new Set<string>();
+  const serviceList: string[] = [];
+  const addService = (raw: string, max: number) => {
+    const t = squeeze(raw);
+    if (t.length < 3 || t.length > max || GENERIC_LINK.test(t) || seenService.has(t.toLowerCase())) return;
+    seenService.add(t.toLowerCase());
+    serviceList.push(t);
+  };
+  $("h2, h3").each((_, el) => {
+    if ($(el).closest("footer").length === 0) addService($(el).text(), SERVICE_HEADING_MAX);
+  });
+  $("nav a, header a").each((_, el) => addService($(el).text(), SERVICE_LINK_MAX));
+  const services = clip(serviceList.join(" · "), SERVICES_MAX) || null;
+
+  const copy: string[] = [];
+  for (const el of $("p").toArray()) {
+    const t = squeeze($(el).text());
+    if (t.length < 60 || NOT_COPY.test(t) || copy.includes(t) || $(el).closest("nav, header, footer").length > 0) continue;
+    copy.push(t);
+    if (copy.length === 3) break;
+  }
+  const about = clip(copy.join(" "), ABOUT_MAX) || null;
 
   const years = [...bodyText.matchAll(/(?:©|&copy;|\(c\)|copyright)\s*(?:\(c\)\s*)?(\d{4})(?:\s*[-–]\s*(\d{4}))?/gi)]
     .flatMap((m) => [Number(m[1]), m[2] ? Number(m[2]) : 0])
@@ -397,12 +450,25 @@ export function parsePage(html: string, baseUrl: string): PageInfo {
       return form.find("textarea").length > 0 || fields.length >= 3;
     }).length;
 
+  const leadFrame = $("iframe")
+    .toArray()
+    .some((el) => {
+      const f = $(el);
+      const src = f.attr("src") ?? "";
+      return !NOT_A_FORM_FRAME.test(src) && LEAD_FRAME.test(`${f.attr("id") ?? ""} ${f.attr("class") ?? ""} ${f.attr("name") ?? ""} ${f.attr("title") ?? ""} ${src}`);
+    });
+
   const chat = CHATS.find(([, re]) => re.test(raw))?.[0] ?? null;
   const builder = BUILDERS.find(([, re]) => re.test(raw))?.[0] ?? null;
 
   return {
     title: squeeze($("title").first().text()) || null,
+    description,
+    heading,
+    services,
+    about,
     textLen: bodyText.length,
+    text: bodyText.slice(0, PAGE_TEXT_MAX),
     challenge: (CHALLENGE_TITLE.test($("title").first().text()) || CHALLENGE_TEXT.test(bodyText) || CHALLENGE_SOURCE.test(raw)) && bodyText.length < 2500,
     socials,
     emails: [...emails].slice(0, 6),
@@ -412,7 +478,7 @@ export function parsePage(html: string, baseUrl: string): PageInfo {
     people: ld.people,
     signals: {
       viewport: /<meta[^>]+name=["']viewport["']/i.test(raw),
-      hasForm: forms > 0 || FORM_EMBEDS.test(raw),
+      hasForm: forms > 0 || FORM_EMBEDS.test(raw) || leadFrame,
       hasBooking: BOOKING.test(raw),
       chat,
       fbPixel: /fbq\(|connect\.facebook\.net\/[^"']*fbevents|facebook\.com\/tr\?/i.test(raw),
@@ -433,7 +499,18 @@ export type SiteScan = {
   error: string | null;
   scannedAt: string;
   title: string | null;
+  /** What the site says it does. Absent (not just null) on scans made before these were read. */
+  description?: string | null;
+  heading?: string | null;
+  services?: string | null;
+  /** From the About page when there is one, otherwise the front page. */
+  about?: string | null;
   textLen: number;
+  /**
+   * The text of the front page and the About page, when the site could be read. It is handed to the caller to be stored apart
+   * from the scan (see page-text-db.ts) and is left out of the scan that is saved.
+   */
+  pageText?: string;
   socials: Partial<Record<Network, string>>;
   emails: string[];
   phones: string[];
@@ -471,15 +548,51 @@ const NO_SIGNALS = (outcome: ScanOutcome, https: boolean): SiteSignals => ({
   facebookUrl: null,
 });
 
-export async function scanSite(url: string, fetcher: Fetcher = safeGet): Promise<SiteScan> {
+/** Fetch result to page: why it failed, or the parsed page and whether it is readable. */
+function read(f: Fetched): { outcome: ScanOutcome; page: PageInfo | null } {
+  const failed = classifyFetch(f);
+  if (failed) return { outcome: failed, page: null };
+  const page = parsePage(f.html, f.finalUrl);
+  return { outcome: page.challenge ? "blocked" : page.textLen < BLANK_BELOW ? "blank" : "ok", page };
+}
+
+/**
+ * Scan a business's site starting from `url`, normally the page its Maps listing points at. `rootUrl` is the
+ * site's front page: when it differs from `url` it is read too (it fills gaps the listed page leaves), and it
+ * stands in for the listed page if that one can't be read, so a stale deep link doesn't make a live site look dead.
+ */
+export async function scanSite(url: string, fetcher: Fetcher = safeGet, rootUrl?: string): Promise<SiteScan> {
+  let root = rootUrl && rootUrl !== url ? rootUrl : null;
+  let usedUrl = url;
+  const pages: SiteScan["pages"] = [];
+
+  let home = await fetcher(url);
+  pages.push({ url: home.finalUrl, status: home.status });
+  let first = read(home);
+  if (root && first.outcome !== "ok" && home.error !== "ENOTFOUND") {
+    const f = await fetcher(root);
+    pages.push({ url: f.finalUrl, status: f.status });
+    const second = read(f);
+    if (second.outcome === "ok") {
+      home = f;
+      first = second;
+      usedUrl = root;
+      root = null;
+    }
+  }
+
   const base: SiteScan = {
-    url,
-    finalUrl: null,
+    url: usedUrl,
+    finalUrl: home.finalUrl,
     outcome: "error",
-    status: null,
-    error: null,
+    status: home.status || null,
+    error: home.error ?? null,
     scannedAt: new Date().toISOString(),
     title: null,
+    description: null,
+    heading: null,
+    services: null,
+    about: null,
     textLen: 0,
     socials: {},
     emails: [],
@@ -487,22 +600,14 @@ export async function scanSite(url: string, fetcher: Fetcher = safeGet): Promise
     aboutUrl: null,
     contactUrl: null,
     people: [],
-    signals: NO_SIGNALS("error", url.startsWith("https")),
-    pages: [],
+    signals: NO_SIGNALS("error", usedUrl.startsWith("https")),
+    pages,
   };
-
-  const home = await fetcher(url);
-  base.finalUrl = home.finalUrl;
-  base.status = home.status || null;
-  base.error = home.error ?? null;
-  base.pages.push({ url: home.finalUrl, status: home.status });
   const https = home.finalUrl.startsWith("https:");
 
-  const failed = classifyFetch(home);
-  if (failed) return { ...base, outcome: failed, signals: NO_SIGNALS(failed, https) };
+  const { outcome, page } = first;
+  if (!page) return { ...base, outcome, signals: NO_SIGNALS(outcome, https) };
 
-  const page = parsePage(home.html, home.finalUrl);
-  const outcome: ScanOutcome = page.challenge ? "blocked" : page.textLen < BLANK_BELOW ? "blank" : "ok";
   const merged = {
     socials: { ...page.socials },
     emails: new Set(page.emails),
@@ -512,22 +617,45 @@ export async function scanSite(url: string, fetcher: Fetcher = safeGet): Promise
     hasForm: page.signals.hasForm,
     hasBooking: page.signals.hasBooking,
     chat: page.signals.chat,
+    about: page.about,
   };
+  const texts = [page.text];
 
-  // Only a readable front page is worth following into About and Contact.
+  // What the first page found wins; later pages only fill gaps.
+  const mergeIn = (p: PageInfo) => {
+    for (const [k, v] of Object.entries(p.socials)) merged.socials[k as Network] ??= v;
+    p.emails.forEach((e) => merged.emails.add(e));
+    p.phones.forEach((ph) => merged.phones.has(digits(ph)) || merged.phones.set(digits(ph), ph));
+    for (const person of p.people) if (!merged.people.some((x) => x.name === person.name)) merged.people.push(person);
+    merged.hasForm ||= p.signals.hasForm;
+    merged.hasBooking ||= p.signals.hasBooking;
+    merged.chat ??= p.signals.chat;
+  };
+  let aboutUrl = page.aboutUrl;
+  let contactUrl = page.contactUrl;
+
+  // Only a readable page is worth following into the front page, About and Contact.
   if (outcome === "ok") {
-    for (const next of [...new Set([page.aboutUrl, page.contactUrl].filter((u): u is string => !!u))].slice(0, 2)) {
+    if (root) {
+      const f = await fetcher(root);
+      pages.push({ url: f.finalUrl, status: f.status });
+      if (!classifyFetch(f) && f.html) {
+        const p = parsePage(f.html, f.finalUrl);
+        mergeIn(p);
+        merged.about ??= p.about;
+        // A deep landing page often has no menu; the front page then says where About and Contact are.
+        aboutUrl ??= p.aboutUrl;
+        contactUrl ??= p.contactUrl;
+      }
+    }
+    for (const next of [...new Set([aboutUrl, contactUrl].filter((u): u is string => !!u))].slice(0, 2)) {
       const f = await fetcher(next);
-      base.pages.push({ url: f.finalUrl, status: f.status });
+      pages.push({ url: f.finalUrl, status: f.status });
       if (classifyFetch(f) || !f.html) continue;
       const p = parsePage(f.html, f.finalUrl);
-      for (const [k, v] of Object.entries(p.socials)) merged.socials[k as Network] ??= v;
-      p.emails.forEach((e) => merged.emails.add(e));
-      p.phones.forEach((ph) => merged.phones.has(digits(ph)) || merged.phones.set(digits(ph), ph));
-      for (const person of p.people) if (!merged.people.some((x) => x.name === person.name)) merged.people.push(person);
-      merged.hasForm ||= p.signals.hasForm;
-      merged.hasBooking ||= p.signals.hasBooking;
-      merged.chat ??= p.signals.chat;
+      mergeIn(p);
+      if (next === aboutUrl && p.about) merged.about = p.about; // the About page describes the business better than the front page
+      if (next === aboutUrl) texts.push(p.text);
     }
   }
 
@@ -535,12 +663,17 @@ export async function scanSite(url: string, fetcher: Fetcher = safeGet): Promise
     ...base,
     outcome,
     title: page.title,
+    description: page.description,
+    heading: page.heading,
+    services: page.services,
+    about: merged.about,
     textLen: page.textLen,
+    ...(outcome === "ok" ? { pageText: texts.join(" ") } : {}),
     socials: merged.socials,
     emails: [...merged.emails].slice(0, 6),
     phones: [...merged.phones.values()].slice(0, 4),
-    aboutUrl: page.aboutUrl,
-    contactUrl: page.contactUrl,
+    aboutUrl,
+    contactUrl,
     people: merged.people,
     signals: { outcome, https, ...page.signals, hasForm: merged.hasForm, hasBooking: merged.hasBooking, chat: merged.chat, facebookUrl: merged.socials.facebook ?? null },
   };

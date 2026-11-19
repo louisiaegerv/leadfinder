@@ -28,6 +28,47 @@ export default function NicheForm({ mode, nicheId, initial }: { mode: "create" |
   const [target, setTarget] = useState(initial.target);
   const [pb, setPb] = useState<Playbook>(initial.playbook);
   const [preview, setPreview] = useState<Preview | null>(null);
+  // Rough description used only as context for the AI; the saved niche keeps the target definition.
+  const [description, setDescription] = useState("");
+  const [suggesting, setSuggesting] = useState(false);
+  // Bumped whenever the AI (or undo) replaces the playbook, so the list boxes reload their text.
+  const [fill, setFill] = useState(0);
+
+  async function suggest() {
+    if (name.trim().length < 2) return toast.error("Enter a niche name first");
+    const before = { target, pb, description };
+    setSuggesting(true);
+    try {
+      const res = await fetch("/api/niches/suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, description }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error ?? "Could not get suggestions");
+      const s = d.suggestion;
+      setDescription(s.description);
+      setTarget(s.target);
+      setPb((o) => ({ ...o, ...s.playbook }));
+      setFill((n) => n + 1);
+      toast.success("Filled in with AI. Check it over before you create the niche.", {
+        description: d.costUsd ? `~$${d.costUsd.toFixed(4)}` : undefined,
+        action: {
+          label: "Undo",
+          onClick: () => {
+            setDescription(before.description);
+            setTarget(before.target);
+            setPb(before.pb);
+            setFill((n) => n + 1);
+          },
+        },
+      });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not get suggestions");
+    } finally {
+      setSuggesting(false);
+    }
+  }
 
   function applyPreset(key: string | null) {
     setPresetKey(key);
@@ -43,9 +84,9 @@ export default function NicheForm({ mode, nicheId, initial }: { mode: "create" |
   }
 
   const set = <K extends keyof Playbook>(k: K, v: Playbook[K]) => setPb((o) => ({ ...o, [k]: v }));
-  type ListKey = "seedQueries" | "includeCategories" | "excludeCategories" | "includeKeywords" | "chainExclusions";
+  type ListKey = "seedQueries" | "includeCategories" | "broadCategories" | "excludeCategories" | "includeKeywords" | "chainExclusions";
   const list = (k: ListKey, label: string, rows = 5, className?: string) => (
-    <ListArea key={`${presetKey}-${k}`} label={label} rows={rows} className={className} initial={pb[k]} onChange={(v) => set(k, v)} />
+    <ListArea key={`${presetKey}-${fill}-${k}`} label={label} rows={rows} className={className} initial={pb[k]} onChange={(v) => set(k, v)} />
   );
 
   // Free preview: how many already-scraped places match this draft definition.
@@ -121,6 +162,18 @@ export default function NicheForm({ mode, nicheId, initial }: { mode: "create" |
               <Label htmlFor="name">Niche name</Label>
               <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Epoxy & concrete flooring" required />
             </div>
+            {mode === "create" && (
+              <div className="space-y-1.5">
+                <Label htmlFor="description">Description <span className="font-normal text-muted-foreground">(optional)</span></Label>
+                <Textarea id="description" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Rough notes are fine, for example: small independent firms, not big national chains" />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={suggest} disabled={suggesting || name.trim().length < 2}>
+                    {suggesting ? <Loader2 className="animate-spin" /> : <Sparkles />} {suggesting ? "Thinking…" : "Fill in the rest with AI"}
+                  </Button>
+                  <span className="text-xs text-muted-foreground">Needs just the name. Fills the target, playbook and trade profile, and tidies your description. You can edit everything after.</span>
+                </div>
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="target">Target definition</Label>
               <Textarea id="target" rows={3} value={target} onChange={(e) => setTarget(e.target.value)} />
@@ -135,8 +188,9 @@ export default function NicheForm({ mode, nicheId, initial }: { mode: "create" |
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
             {list("seedQueries", "Seed queries")}
-            {list("includeKeywords", "Include keywords (title/domain)")}
+            {list("includeKeywords", "Include keywords (each different match is a point)")}
             {list("includeCategories", "Include categories")}
+            {list("broadCategories", "Broad categories (a keyword must back them up)")}
             {list("excludeCategories", "Exclude categories")}
             {list("chainExclusions", "Chain exclusion list", 4, "sm:col-span-2")}
           </CardContent>

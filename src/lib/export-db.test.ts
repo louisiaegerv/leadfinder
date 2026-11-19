@@ -75,6 +75,71 @@ describe("exports", () => {
     expect(rows.every((r) => r.length === header.length)).toBe(true);
   });
 
+  it("exports only what a niche's filters match, in the table's order", async () => {
+    const { parseFilters } = await import("./queries");
+    const title = x.PROSPECT_HEADER.indexOf("Business");
+    const names = (sp: Record<string, string>) => x.prospectRows({ nicheId: 1, filters: parseFilters(sp) }).map((r) => r[title]);
+    expect(names({ rel: "all" })).toEqual(["=Evil Floors", "Good Floors, LLC"]); // score desc, unscored last
+    expect(names({ rel: "all", sort: "title", dir: "asc" })).toEqual(["=Evil Floors", "Good Floors, LLC"]);
+    expect(names({ rel: "all", sort: "title", dir: "desc" })).toEqual(["Good Floors, LLC", "=Evil Floors"]);
+    expect(names({ rel: "target" })).toEqual(["=Evil Floors"]);
+    expect(names({ rel: "gray" })).toEqual(["Good Floors, LLC"]);
+    expect(names({ rel: "all", q: "good" })).toEqual(["Good Floors, LLC"]);
+    expect(names({ rel: "all", stage: "dialed" })).toEqual(["=Evil Floors"]);
+    expect(x.prospectRows({ nicheId: 2, filters: parseFilters({ rel: "all" }) })).toEqual([]);
+  });
+
+  it("tags exactly the businesses the filters match, on every page, and exports the tags", async () => {
+    const { parseFilters } = await import("./queries");
+    const { tagMatching, nicheTags } = await import("./tags-db");
+    const col = (name: string) => x.PROSPECT_HEADER.indexOf(name);
+    const tagsOf = () => Object.fromEntries(x.prospectRows().map((r) => [r[col("Business")], r[col("Tags")]]));
+
+    expect(tagsOf()).toEqual({ "=Evil Floors": "", "Good Floors, LLC": "" });
+
+    // Only the targets are tagged; "  Call, Monday; " is tidied into one clean tag.
+    expect(tagMatching(1, parseFilters({ rel: "target" }), "  Call, Monday; ", "add")).toEqual({ matched: 1, changed: 1, tag: "Call Monday" });
+    expect(tagsOf()).toEqual({ "=Evil Floors": "Call Monday", "Good Floors, LLC": "" });
+
+    // Tagging again, even in different case, changes nothing; a second tag is kept alongside.
+    expect(tagMatching(1, parseFilters({ rel: "target" }), "call monday", "add").changed).toBe(0);
+    tagMatching(1, parseFilters({ rel: "all" }), "batch-1", "add");
+    expect(tagsOf()).toEqual({ "=Evil Floors": "Call Monday; batch-1", "Good Floors, LLC": "batch-1" });
+    expect(nicheTags(1)).toEqual([{ tag: "batch-1", n: 2 }, { tag: "Call Monday", n: 1 }]);
+
+    // The tag filter finds them, in the table query and in the export.
+    expect(x.prospectRows({ nicheId: 1, filters: parseFilters({ rel: "all", tag: "CALL monday" }) })).toHaveLength(1);
+    expect(parseFilters({ tag: "x" }).tag).toBe("x");
+
+    // Removing works the same way, and an empty tag is refused.
+    expect(tagMatching(1, parseFilters({ rel: "all" }), "batch-1", "remove")).toMatchObject({ matched: 2, changed: 2 });
+    expect(tagsOf()).toEqual({ "=Evil Floors": "Call Monday", "Good Floors, LLC": "" });
+    expect(() => tagMatching(1, parseFilters({}), " ,; ", "add")).toThrow();
+  });
+
+  it("keeps a note on an uncalled business without logging a call, and exports it", async () => {
+    const { setBusinessNote } = await import("./outreach-db");
+    const col = (name: string) => x.PROSPECT_HEADER.indexOf(name);
+    const noteOf = (title: string) => x.prospectRows().find((r) => r[col("Business")] === title)![col("Notes")];
+    const calls = () => db.select().from(s.contactLog).all().length;
+    const before = calls();
+
+    // P2 has no contact row yet: the note creates one, and leaves owner / do-not-contact alone.
+    expect(setBusinessNote("P2", "  Posts daily on Facebook.\r\nNo booking link  ")).toEqual({ note: "Posts daily on Facebook.\nNo booking link" });
+    expect(noteOf("Good Floors, LLC")).toBe("Posts daily on Facebook.\nNo booking link");
+    expect(calls()).toBe(before);
+    expect(db.select().from(s.nichePlaces).all().find((r) => r.placeId === "P2")!.stage).toBe("new");
+
+    // A note on a business that already has an owner keeps the owner; clearing keeps it too.
+    setBusinessNote("P1", "call after 3pm");
+    expect(x.prospectRows().find((r) => r[col("Business")] === "=Evil Floors")![col("Owner")]).toBe("Dee Owner");
+    expect(setBusinessNote("P1", "   ")).toEqual({ note: null });
+    expect(noteOf("=Evil Floors")).toBeNull();
+    expect(x.prospectRows().find((r) => r[col("Business")] === "=Evil Floors")![col("Owner")]).toBe("Dee Owner");
+    expect(() => setBusinessNote("NOPE", "x")).toThrow("Business not found");
+    setBusinessNote("P2", null);
+  });
+
   it("lists the call log with the business it belongs to", () => {
     const rows = x.callRows();
     expect(rows).toHaveLength(1);

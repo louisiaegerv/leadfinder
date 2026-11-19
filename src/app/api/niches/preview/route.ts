@@ -13,7 +13,7 @@ export async function POST(req: Request) {
   const pb = parsed.data;
 
   const all = db
-    .select({ title: places.title, categories: places.categories, domain: places.domain })
+    .select({ title: places.title, categories: places.categories, domain: places.domain, website: places.website })
     .from(places)
     .all();
 

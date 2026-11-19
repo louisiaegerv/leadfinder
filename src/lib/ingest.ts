@@ -18,6 +18,9 @@ export type IngestResult = { resultCount: number; newPlaceCount: number; newGlob
 export function ingestItems(runId: number, items: Raw[]): IngestResult {
   const run = db.select().from(runs).where(eq(runs.id, runId)).get();
   if (!run) throw new Error(`Run ${runId} not found`);
+  // Two polls can both fetch the dataset and reach here. The second would find every place already in
+  // the niche and overwrite the first one's count with "0 new", so an ingested run keeps its result.
+  if (run.status === "ingested") return { resultCount: run.resultCount ?? 0, newPlaceCount: run.newPlaceCount ?? 0, newGlobalCount: 0 };
   const area = db.select().from(areas).where(eq(areas.id, run.areaId)).get();
   if (!area) throw new Error(`Area ${run.areaId} not found`);
   const niche = db.select().from(niches).where(eq(niches.id, area.nicheId)).get();
@@ -67,6 +70,9 @@ export function ingestItems(runId: number, items: Raw[]): IngestResult {
           target: places.placeId,
           set: {
             ...fields,
+            // A website typed in by hand stays, whatever Google lists now.
+            website: sql`case when ${places.websiteManual} then ${places.website} else excluded.website end`,
+            domain: sql`case when ${places.websiteManual} then ${places.domain} else excluded.domain end`,
             // A re-sight without images (older run, trimmed fields) must not erase ones we have.
             imageUrl: sql`coalesce(excluded.image_url, ${places.imageUrl})`,
             thumbnailUrl: sql`coalesce(excluded.thumbnail_url, ${places.thumbnailUrl})`,

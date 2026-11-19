@@ -3,6 +3,8 @@
 @import "shadcn/tailwind.css";
 
 @custom-variant dark (&:is(.dark *));
+/* `photo:` utilities apply only while the main area has a background picture. BackgroundLayer renders the marker, e.g. `photo:backdrop-blur-md`. */
+@custom-variant photo (:root:has([data-main-bg]) &);
 
 @theme inline {
   --color-background: var(--background);

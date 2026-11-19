@@ -157,7 +157,8 @@ export function BulkEnrichButton({ nicheId, running }: { nicheId: number; runnin
                 className={cn("rounded-lg border p-3 text-left text-sm transition", method === m.key ? "border-primary ring-2 ring-primary/20" : "hover:bg-muted")}
               >
                 <div className="font-medium">{m.title}</div>
-                <div className="mt-0.5 text-xs text-muted-foreground">{m.blurb}</div>
+                {/* On a phone only the chosen method explains itself, so the list stays short enough to see. */}
+                <div className={cn("mt-0.5 text-xs text-muted-foreground", method !== m.key && "max-sm:hidden")}>{m.blurb}</div>
               </button>
             ))}
           </div>

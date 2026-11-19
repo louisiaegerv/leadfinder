@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ageLabel, readReviews, reviewCostUsd, reviewStats } from "./reviews";
+import { ageLabel, readReviews, reviewCostUsd, reviewFetchLines, reviewStats } from "./reviews";
 
 // Trimmed from a real run of the Maps actor with reviews on (New Era Epoxy Flooring), newest first.
 const rev = (over: Record<string, unknown>) => ({ reviewId: "x", name: "A", stars: 5, text: null, publishedAtDate: "2026-08-11T00:55:19Z", publishAt: "2 months ago", responseFromOwnerText: null, rating: 5, publishedAtTimestamp: "2026-08-11T00:55:19Z", ...over });
@@ -18,6 +18,7 @@ describe("readReviews", () => {
     expect(s.map((r) => r.id)).toEqual(["a", "b", "c", "d", "e"]);
     expect(s[0]).toEqual({ id: "a", stars: 5, at: "2026-08-11T00:55:19.000Z", text: "New Era Epoxy did our shop floor and 4 car garage.", replied: false });
     expect(s.map((r) => r.replied)).toEqual([false, false, false, true, true]);
+    expect(s.map((r) => r.reply)).toEqual([undefined, undefined, undefined, "Thank you Ruby!", "Thank you for the 5 stars John!"]);
     expect(s[3].text).toBeNull();
     expect(JSON.stringify(s)).not.toContain("William Lynch"); // reviewer names are not kept
   });
@@ -68,7 +69,7 @@ describe("reviewStats", () => {
       rev({ reviewId: "1", stars: 1, publishedAtDate: "2026-10-01T00:00:00Z" }),
       rev({ reviewId: "2", stars: 2, publishedAtDate: "2026-09-10T00:00:00Z" }),
       rev({ reviewId: "3", stars: 1, publishedAtDate: "2026-03-01T00:00:00Z" }),
-      rev({ reviewId: "4", stars: 5, publishedAtDate: "2026-09-20T00:00:00Z" }),
+      rev({ reviewId: "4", stars: 5, publishedAtDate: "2026-09-20T12:00:00Z" }),
     ]);
     expect(reviewStats(s, NOW)!.lowRecent).toBe(2);
   });
@@ -97,3 +98,82 @@ describe("ageLabel and cost", () => {
     expect(reviewCostUsd(0, 5)).toBe(0);
   });
 });
+
+describe("reviewFetchLines", () => {
+  const review = (at: string) => ({ id: at, stars: 5, at, text: null, replied: false });
+  const when = new Date("2026-10-01T12:00:00Z");
+
+  it("says what a first fetch will do", () => {
+    const lines = reviewFetchLines({ sample: null, sampledAt: null, maxReviews: 5 });
+    expect(lines[0]).toBe("Fetches the newest 5 Google reviews of this business, through Apify.");
+    expect(lines[1]).toBe("No reviews have been fetched for this business yet.");
+    expect(lines.join(" ")).toMatch(/re-scores it in every niche/);
+  });
+
+  it("says what a refresh will replace, with dates", () => {
+    const lines = reviewFetchLines({ sample: [review("2026-09-20T12:00:00Z"), review("2026-08-01T12:00:00Z")], sampledAt: when, maxReviews: 5 });
+    expect(lines[1]).toBe("Replaces the 2 reviews saved on Oct 1, 2026 (the newest is from Sep 20, 2026).");
+  });
+
+  it("is correct for one review, and for a business that had none", () => {
+    expect(reviewFetchLines({ sample: [review("2026-09-20T12:00:00Z")], sampledAt: when, maxReviews: 5 })[1]).toContain("Replaces the 1 review saved");
+    expect(reviewFetchLines({ sample: [], sampledAt: when, maxReviews: 5 })[1]).toBe("Last fetched on Oct 1, 2026: it had no reviews.");
+  });
+});
+
+describe("readReviews with the same review returned twice", () => {
+  // The shape Apify returned for Pro Level Floor Coatings: each review as a short record and again as a fuller one with the reply.
+  const short = (reviewId: string, name: string, at: string, text: string) => ({ reviewId, name, stars: 5, text, publishedAtDate: at, likesCount: 0 });
+  const full = (reviewId: string, name: string, at: string, text: string, reply?: string) => ({
+    reviewId, name, author: name, rating: 5, text, publishedAtDate: at, publishedAtTimestamp: at, likesCount: 2,
+    ...(reply ? { responseFromOwnerText: reply, responseFromOwnerDate: "a day ago" } : {}),
+  });
+  const raw = [
+    short("A", "Susan", "2026-10-28T20:08:00Z", "Such friendly service."),
+    full("A", "Susan", "2026-10-28T20:08:00Z", "Such friendly service.", "Susan, we appreciate your kind words."),
+    short("B", "Maureen", "2026-10-27T20:50:20Z", "Couldn't be happier."),
+    full("B", "Maureen", "2026-10-27T20:50:20Z", "Couldn't be happier.", "Thank you, Maureen."),
+    short("C", "Jen", "2026-10-15T14:53:49Z", "Fantastic service!"),
+  ];
+
+  it("keeps the owner's reply when it is on the second copy", () => {
+    const out = readReviews(raw)!;
+    expect(out.map((r) => [r.id, r.replied])).toEqual([["A", true], ["B", true], ["C", false]]);
+  });
+
+  it("gives one review per reviewId, newest first", () => {
+    expect(readReviews(raw)!.map((r) => r.id)).toEqual(["A", "B", "C"]);
+  });
+
+  it("finds the reply whichever copy comes first", () => {
+    const flipped = [full("A", "Susan", "2026-10-28T20:08:00Z", "Great.", "Thanks!"), short("A", "Susan", "2026-10-28T20:08:00Z", "Great.")];
+    expect(readReviews(flipped)).toHaveLength(1);
+    expect(readReviews(flipped)![0].replied).toBe(true);
+  });
+
+  it("fills in what one copy lacks from the other, and still dedupes without a reviewId", () => {
+    const merged = readReviews([{ reviewerId: "9", publishedAtDate: "2026-10-01T12:00:00Z", stars: null }, { reviewerId: "9", publishedAtDate: "2026-10-01T12:00:00Z", rating: 4, text: "Good work" }])!;
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toMatchObject({ stars: 4, text: "Good work" });
+  });
+
+  it("keeps what the owner wrote, from whichever copy has it", () => {
+    const out = readReviews(raw)!;
+    expect(out.map((r) => r.reply)).toEqual(["Susan, we appreciate your kind words.", "Thank you, Maureen.", undefined]);
+    expect(readReviews([full("A", "Susan", "2026-10-28T20:08:00Z", "Great.", "Thanks!"), short("A", "Susan", "2026-10-28T20:08:00Z", "Great.")])![0].reply).toBe("Thanks!");
+  });
+
+  it("trims a long reply to a size worth keeping, and keeps none for a blank one", () => {
+    const [long] = readReviews([full("L", "Lee", "2026-10-28T20:08:00Z", "Ok.", `  ${"word ".repeat(200)}`)])!;
+    expect(long.reply!.length).toBe(400);
+    const [blank] = readReviews([{ ...full("Z", "Zed", "2026-10-28T20:08:00Z", "Ok."), responseFromOwnerText: "   " }])!;
+    expect(blank).toMatchObject({ replied: false });
+    expect("reply" in blank).toBe(false);
+  });
+
+  it("counts the replies in the stats", () => {
+    const out = readReviews(raw)!;
+    expect(reviewStats(out, new Date("2026-10-30T12:00:00Z"))).toMatchObject({ count: 3, replied: 2 });
+  });
+});
+

@@ -67,6 +67,16 @@ describe("ingestItems", () => {
     expect(db.select().from(s.places).where(eq(s.places.placeId, "dup1")).all()).toHaveLength(1);
   });
 
+  it("ingesting the same run twice keeps the first count instead of reporting 0 new", () => {
+    const { areas } = seed([{ name: "A", lat: 30.08, lng: -95.42, km: 20 }]);
+    const run = mkRun(areas[0].id);
+    const first = ingestItems(run.id, [item("twice1"), item("twice2")]);
+    const again = ingestItems(run.id, [item("twice1"), item("twice2")]);
+    expect(first.newPlaceCount).toBe(2);
+    expect(again).toMatchObject({ resultCount: 2, newPlaceCount: 2 });
+    expect(db.select().from(s.runs).where(eq(s.runs.id, run.id)).get()).toMatchObject({ resultCount: 2, newPlaceCount: 2 });
+  });
+
   it("overlapping areas: one place, one niche row, assigned to one area", () => {
     const { niche, areas } = seed([
       { name: "East", lat: 30.08, lng: -95.4, km: 15 },
@@ -218,13 +228,12 @@ describe("reviews at ingest (backfill)", () => {
     expect(placeRow("rv-never").reviewSample).toBeNull();
   });
 
-  it("does not bring in reviews it cannot date, and keeps owner replies as a flag only", () => {
+  it("does not bring in reviews it cannot date, and keeps what the owner replied", () => {
     const { areas } = seed([{ name: "A", lat: 30.08, lng: -95.42, km: 20 }]);
     ingestItems(mkRun(areas[0].id).id, [
       item("rv-odd", { reviews: [{ reviewId: "x", stars: 4, publishAt: "2 months ago" }, rv("ok", 40, { responseFromOwnerText: "Thank you!" })] }),
     ]);
-    expect(placeRow("rv-odd").reviewSample).toEqual([expect.objectContaining({ id: "ok", replied: true })]);
-    expect(JSON.stringify(placeRow("rv-odd").reviewSample)).not.toContain("Thank you");
+    expect(placeRow("rv-odd").reviewSample).toEqual([expect.objectContaining({ id: "ok", replied: true, reply: "Thank you!" })]);
   });
 });
 

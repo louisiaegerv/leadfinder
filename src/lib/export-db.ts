@@ -1,23 +1,30 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { desc, eq } from "drizzle-orm";
+import { asc, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { areas, contactLog, contacts, enrichmentRuns, facebookProfiles, nichePlaces, niches, places, runs } from "@/db/schema";
 import { OFFER_LABEL } from "./offers";
 import { STAGE_LABEL } from "./outreach";
+import { nicheFilterWhere, SORT_COLUMN, type PlaceFilters } from "./queries";
 import type { Cell } from "./csv";
 
 const offer = (k: keyof typeof OFFER_LABEL | null) => (k ? OFFER_LABEL[k] : "");
 const when = (d: Date | null) => (d ? d.toISOString() : "");
 
 export const PROSPECT_HEADER = [
-  "Niche", "Business", "Relevance", "Score", "Lead offer", "Runner-up offer", "Stage", "Owner", "Do not contact",
+  "Niche", "Business", "Relevance", "Score", "Lead offer", "Runner-up offer", "Stage", "Tags", "Owner", "Do not contact", "Notes",
   "Phone", "Website", "Facebook page", "Street", "City", "State", "Postal code", "Rating", "Reviews", "Area", "Google Maps",
 ];
 
-/** Every business in every niche, with its score and what you know about it. One row per business per niche. */
-export function prospectRows(): Cell[][] {
+/**
+ * Businesses with their score and what you know about them, one row per business per niche. With no scope that is every
+ * niche; with one it is exactly the rows the niche's Prospects table matches for those filters, in the table's sort order
+ * (every page, not just the one on screen).
+ */
+export function prospectRows(scope?: { nicheId: number; filters: PlaceFilters }): Cell[][] {
+  const sortCol = scope && SORT_COLUMN[scope.filters.sort];
+  const dir = scope?.filters.dir === "asc" ? asc : desc;
   return db
     .select({
       niche: niches.name,
@@ -27,8 +34,10 @@ export function prospectRows(): Cell[][] {
       lead: nichePlaces.leadOffer,
       runnerUp: nichePlaces.runnerUpOffer,
       stage: nichePlaces.stage,
+      tags: nichePlaces.tags,
       owner: contacts.ownerName,
       dnc: contacts.doNotContact,
+      note: contacts.note,
       phone: places.phone,
       website: places.website,
       facebook: facebookProfiles.pageUrl,
@@ -47,11 +56,12 @@ export function prospectRows(): Cell[][] {
     .leftJoin(areas, eq(areas.id, nichePlaces.areaId))
     .leftJoin(contacts, eq(contacts.placeId, nichePlaces.placeId))
     .leftJoin(facebookProfiles, eq(facebookProfiles.placeId, nichePlaces.placeId))
-    .orderBy(niches.name, desc(nichePlaces.score), places.title)
+    .where(scope ? nicheFilterWhere(scope.nicheId, scope.filters) : undefined)
+    .orderBy(...(sortCol ? [sql`${sortCol} is null`, dir(sortCol), asc(places.title)] : [niches.name, desc(nichePlaces.score), places.title]))
     .all()
     .map((r) => [
       r.niche, r.title, r.relevance ?? "undecided", r.score == null ? "" : Math.round(r.score), offer(r.lead), offer(r.runnerUp),
-      STAGE_LABEL[r.stage], r.owner, r.dnc ? "yes" : "", r.phone, r.website, r.facebook, r.street, r.city, r.state, r.postal,
+      STAGE_LABEL[r.stage], (r.tags ?? []).join("; "), r.owner, r.dnc ? "yes" : "", r.note, r.phone, r.website, r.facebook, r.street, r.city, r.state, r.postal,
       r.rating, r.reviews, r.area, `https://www.google.com/maps/place/?q=place_id:${r.placeId}`,
     ]);
 }

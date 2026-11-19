@@ -9,7 +9,15 @@ export const playbookSchema = z.object({
   seedQueries: z.array(z.string()).default([]),
   includeCategories: z.array(z.string()).default([]),
   excludeCategories: z.array(z.string()).default([]),
-  /** Keywords that mark a title/domain as on-target even if categories are vague. */
+  /**
+   * Categories too broad to make a business a target on their own (say "Flooring contractor" for an epoxy niche). They
+   * count for one point instead of two, so a keyword has to back them up. Counted as include categories otherwise.
+   */
+  broadCategories: z.array(z.string()).default([]),
+  /**
+   * Keywords that mark a business as on-target even if categories are vague: found in its name or domain, or on its own
+   * website. Each different keyword found is a point toward target (two points make one), so keep them specific.
+   */
   includeKeywords: z.array(z.string()).default([]),
   /** Chain / franchise names to drop for this niche only. */
   chainExclusions: z.array(z.string()).default([]),

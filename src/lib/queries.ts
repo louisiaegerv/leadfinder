@@ -2,6 +2,7 @@ import { and, asc, desc, eq, isNull, like, or, sql, type SQL } from "drizzle-orm
 import { db } from "@/db";
 import { areas, contacts, facebookProfiles, nichePlaces, niches, placeRuns, places, runs } from "@/db/schema";
 import { OFFERS, STAGES, type OfferKey, type Stage } from "./offers";
+import { cleanTag } from "./tags";
 
 export function listNiches() {
   return db
@@ -34,6 +35,17 @@ export function getRuns(nicheId: number) {
     .where(eq(areas.nicheId, nicheId))
     .orderBy(desc(runs.id))
     .all();
+}
+
+/** How many businesses each area of a niche brought in, keyed by area id. */
+export function getAreaPlaceCounts(nicheId: number): Map<number, number> {
+  const rows = db
+    .select({ areaId: nichePlaces.areaId, n: sql<number>`count(*)` })
+    .from(nichePlaces)
+    .where(eq(nichePlaces.nicheId, nicheId))
+    .groupBy(nichePlaces.areaId)
+    .all();
+  return new Map(rows.flatMap((r) => (r.areaId == null ? [] : [[r.areaId, r.n] as const])));
 }
 
 /** A few photo-bearing, well-reviewed places to show as a visual on a niche card. */
@@ -102,6 +114,8 @@ export type PlaceFilters = {
   stage?: Stage;
   areaId?: number;
   offer?: OfferKey;
+  /** Only businesses carrying this tag (not case-sensitive). */
+  tag?: string;
   q?: string;
   sort: SortKey;
   dir: "asc" | "desc";
@@ -123,6 +137,7 @@ export function parseFilters(sp: RawParams): PlaceFilters {
     areaId: Number.isInteger(areaId) && areaId > 0 ? areaId : undefined,
     offer: OFFERS.includes(offer) ? offer : undefined,
     stage: STAGES.includes(stage) ? stage : undefined,
+    tag: cleanTag(one(sp.tag)) ?? undefined,
     q: one(sp.q)?.trim() || undefined,
     sort: SORT_KEYS.includes(sort) ? sort : "score",
     dir: one(sp.dir) === "asc" ? "asc" : "desc",
@@ -138,6 +153,7 @@ function where(nicheId: number, f: PlaceFilters): SQL {
   if (f.areaId) conds.push(eq(nichePlaces.areaId, f.areaId));
   if (f.offer) conds.push(eq(nichePlaces.leadOffer, f.offer));
   if (f.stage) conds.push(eq(nichePlaces.stage, f.stage));
+  if (f.tag) conds.push(sql`exists (select 1 from json_each(${nichePlaces.tags}) where lower(value) = lower(${f.tag}))`);
   if (f.q) conds.push(like(places.title, `%${f.q.replace(/[%_]/g, "")}%`));
   return and(...conds)!;
 }
@@ -145,7 +161,7 @@ function where(nicheId: number, f: PlaceFilters): SQL {
 /** The table's filters as a SQL condition, so other features can act on exactly the rows you are looking at. */
 export { where as nicheFilterWhere };
 
-const SORT_COLUMN = {
+export const SORT_COLUMN = {
   score: nichePlaces.score,
   reviews: places.reviewsCount,
   rating: places.totalScore,
@@ -163,6 +179,7 @@ export function queryNichePlaces(nicheId: number, f: PlaceFilters) {
       categories: places.categories,
       city: places.city,
       phone: places.phone,
+      website: places.website,
       domain: places.domain,
       totalScore: places.totalScore,
       reviewsCount: places.reviewsCount,
@@ -177,9 +194,11 @@ export function queryNichePlaces(nicheId: number, f: PlaceFilters) {
       leadOffer: nichePlaces.leadOffer,
       runnerUpOffer: nichePlaces.runnerUpOffer,
       stage: nichePlaces.stage,
+      tags: nichePlaces.tags,
       areaName: areas.name,
       doNotContact: contacts.doNotContact,
       ownerName: contacts.ownerName,
+      note: contacts.note,
     })
     .from(nichePlaces)
     .innerJoin(places, eq(places.placeId, nichePlaces.placeId))

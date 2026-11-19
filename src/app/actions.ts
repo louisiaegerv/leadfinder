@@ -11,8 +11,15 @@ import { clonePlaybook } from "@/lib/presets";
 import { playbookSchema } from "@/lib/playbook";
 import { OFFERS, STAGES } from "@/lib/offers";
 import { OUTCOMES, parseFollowUp } from "@/lib/outreach";
+import { setManualFacebook } from "@/lib/facebook-manual-db";
+import { MAX_WEBSITE } from "@/lib/website-manual";
+import { setManualWebsite } from "@/lib/website-manual-db";
+import { resetAiLabels } from "@/lib/graylist";
+import { parseFilters } from "@/lib/queries";
+import { tagMatching } from "@/lib/tags-db";
 import { MAX_OWNER_NAME } from "@/lib/owner-limits";
-import { clearFollowUp, deleteLogEntry, recordCall, setManualOwner } from "@/lib/outreach-db";
+import { clearFollowUp, deleteLogEntry, recordCall, setBusinessNote, setManualOwner } from "@/lib/outreach-db";
+import { MAX_NOTE } from "@/lib/note-limits";
 import { MAX_DAILY_GOAL, queueUrl } from "@/lib/call-queue";
 import { nextLead, setDailyGoal as saveDailyGoal, skipToday } from "@/lib/call-queue-db";
 
@@ -61,6 +68,27 @@ export async function setRelevance(
   }
   rescoreNiche(nicheId);
   revalidatePath(`/niches/${nicheId}`, "layout");
+}
+
+/** Undo the model's labels in a niche and forget its saved answers. Your own labels are kept; the rules decide the rest again. */
+export async function resetAiClassifications(nicheId: number) {
+  const id = z.number().int().positive().parse(nicheId);
+  const result = resetAiLabels(id);
+  reclassifyNiche(id);
+  rescoreNiche(id);
+  revalidatePath(`/niches/${id}`, "layout");
+  return result;
+}
+
+/**
+ * Add a tag to (or remove it from) every business the Prospects table matches for the filters in its URL, across all
+ * pages. Tags show in the table, can be filtered on, and are a column in every prospect export.
+ */
+export async function tagResults(nicheId: number, params: Record<string, string>, tag: string, mode: "add" | "remove") {
+  const id = z.number().int().positive().parse(nicheId);
+  const result = tagMatching(id, parseFilters(params), tag, mode === "remove" ? "remove" : "add");
+  revalidatePath(`/niches/${id}`, "layout");
+  return result;
 }
 
 /** One flag per business, shared by every niche that tracks it. */
@@ -202,6 +230,30 @@ export async function setStage(nicheId: number, placeId: string, stage: (typeof 
 export async function setOwnerName(placeId: string, name: string | null) {
   const v = z.object({ placeId: z.string().min(1), name: z.string().trim().max(MAX_OWNER_NAME, `Keep the name under ${MAX_OWNER_NAME} characters`).nullable() }).parse({ placeId, name });
   const result = setManualOwner(v.placeId, v.name);
+  revalidatePath("/", "layout");
+  return result;
+}
+
+/** Your own note about a business, written before or after calling. Not a call: nothing is logged and the stage does not move. Empty clears it. */
+export async function setNote(placeId: string, note: string | null) {
+  const v = z.object({ placeId: z.string().min(1), note: z.string().max(MAX_NOTE, `Keep the note under ${MAX_NOTE} characters`).nullable() }).parse({ placeId, note });
+  const result = setBusinessNote(v.placeId, v.note);
+  revalidatePath("/", "layout");
+  return result;
+}
+
+/** Type in a business's website, for one that is not on its Google listing. Empty clears it. A site you set is kept when Maps is searched again. */
+export async function setWebsite(placeId: string, website: string | null) {
+  const v = z.object({ placeId: z.string().min(1), website: z.string().max(MAX_WEBSITE, `Keep the link under ${MAX_WEBSITE} characters`).nullable() }).parse({ placeId, website });
+  const result = setManualWebsite(v.placeId, v.website);
+  revalidatePath("/", "layout");
+  return result;
+}
+
+/** Type in a Facebook page link and/or page ID. Both empty clears it. A page you set is never replaced by a search or scan. */
+export async function setFacebookPage(placeId: string, url: string | null, pageId: string | null) {
+  const v = z.object({ placeId: z.string().min(1), url: z.string().max(500).nullable(), pageId: z.string().max(40).nullable() }).parse({ placeId, url, pageId });
+  const result = setManualFacebook(v.placeId, v.url, v.pageId);
   revalidatePath("/", "layout");
   return result;
 }

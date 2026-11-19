@@ -1,0 +1,1 @@
+ALTER TABLE `places` ADD `website_manual` integer DEFAULT false NOT NULL;

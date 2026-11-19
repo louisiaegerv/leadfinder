@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 
 export const metadata = { title: "Data · Leadfinder" };
 
-const btn = "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted";
+const btn = "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted bg-card/50 shadow-lg backdrop-blur-md backdrop-saturate-150";
 const small = "inline-flex items-center gap-1 whitespace-nowrap text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline";
 
 const money = (n: number | null) => (n == null ? "–" : `$${n.toFixed(n < 0.1 ? 4 : 2)}`);
@@ -22,7 +22,7 @@ export default function DataPage() {
 
       <section className="space-y-3">
         <h2 className="flex items-center gap-2 text-lg font-semibold"><Database className="size-5" /> Backup</h2>
-        <div className="space-y-3 rounded-lg border p-4">
+        <div className="space-y-3 rounded-lg border p-4 bg-card/50 shadow-lg backdrop-blur-md backdrop-saturate-150">
           <p className="text-sm text-muted-foreground">
             Everything you have built here (businesses, scores, owners, call notes and follow-ups) lives in one file on this computer. Download a copy now and then,
             and before you update the app. The app keeps running while it is copied.
@@ -37,7 +37,7 @@ export default function DataPage() {
 
       <section className="space-y-3">
         <h2 className="flex items-center gap-2 text-lg font-semibold"><FileSpreadsheet className="size-5" /> Spreadsheets</h2>
-        <div className="space-y-3 rounded-lg border p-4">
+        <div className="space-y-3 rounded-lg border p-4 bg-card/50 shadow-lg backdrop-blur-md backdrop-saturate-150">
           <p className="text-sm text-muted-foreground">CSV files that open in Excel or Google Sheets.</p>
           <div className="flex flex-wrap gap-2">
             <a href="/api/export/prospects" className={btn}><Download className="size-4" /> Prospects</a>
